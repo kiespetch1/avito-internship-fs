@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"avito-internship-fs/internal/auth"
+	"avito-internship-fs/internal/categories"
 	"avito-internship-fs/internal/database"
 	"avito-internship-fs/internal/httpx"
+	"avito-internship-fs/internal/repository"
+	"avito-internship-fs/internal/service"
 )
 
 func main() {
@@ -26,14 +29,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	_ = db
-
 	issuer, err := auth.NewIssuer(jwtSecret, 24*time.Hour)
 	if err != nil {
 		slog.Error("auth issuer init failed", "error", err)
 		os.Exit(1)
 	}
 	authHandler := auth.NewHandler(issuer)
+
+	categoryRepo := repository.NewCategoryRepository(db)
+	categoryService := service.NewCategoryService(categoryRepo)
+	categoriesHandler := categories.NewHandler(categoryService)
+
+	authed := auth.RequireAuth(issuer)
+	adminOnly := func(h http.Handler) http.Handler {
+		return authed(auth.RequireRole(auth.RoleAdmin)(h))
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /_info", func(w http.ResponseWriter, _ *http.Request) {
@@ -43,6 +53,8 @@ func main() {
 		})
 	})
 	mux.HandleFunc("POST /dummyLogin", authHandler.DummyLogin)
+	mux.Handle("GET /categories", authed(http.HandlerFunc(categoriesHandler.List)))
+	mux.Handle("POST /categories", adminOnly(http.HandlerFunc(categoriesHandler.Create)))
 
 	server := &http.Server{
 		Addr:              addr,
