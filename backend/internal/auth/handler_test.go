@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"avito-internship-fs/internal/api"
 )
 
 func newTestHandler(t *testing.T) (*Handler, *Issuer) {
@@ -28,14 +30,14 @@ func TestDummyLoginAdmin(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d want 200, body=%s", rr.Code, rr.Body.String())
 	}
-	var resp tokenResponse
+	var resp api.Token
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.User.ID != DummyAdminID.String() {
-		t.Fatalf("admin id: got %q", resp.User.ID)
+	if resp.User.Id != DummyAdminID {
+		t.Fatalf("admin id: got %q", resp.User.Id)
 	}
-	if resp.User.Role != RoleAdmin {
+	if resp.User.Role != api.RoleAdmin {
 		t.Fatalf("role: got %q", resp.User.Role)
 	}
 	claims, err := iss.Parse(resp.Token)
@@ -56,10 +58,10 @@ func TestDummyLoginUser(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d", rr.Code)
 	}
-	var resp tokenResponse
+	var resp api.Token
 	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
-	if resp.User.ID != DummyUserID.String() {
-		t.Fatalf("user id: got %q", resp.User.ID)
+	if resp.User.Id != DummyUserID {
+		t.Fatalf("user id: got %q", resp.User.Id)
 	}
 }
 

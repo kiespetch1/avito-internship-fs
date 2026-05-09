@@ -1,10 +1,13 @@
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build run test lint fmt tidy clean
+.PHONY: build run test lint fmt tidy clean generate
 
 build:
 	$(GO) build -o bin/api ./cmd/api
+
+generate:
+	$(GO) tool oapi-codegen --config=internal/api/cfg.yaml ../api.yaml
 
 run:
 	$(GO) run ./cmd/api

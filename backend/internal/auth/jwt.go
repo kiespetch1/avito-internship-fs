@@ -7,6 +7,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	"avito-internship-fs/internal/api"
 )
 
 type Role string
@@ -76,4 +78,26 @@ func (i *Issuer) Parse(raw string) (*Claims, error) {
 	}
 
 	return claims, nil
+}
+
+func roleFromAPI(r api.Role) (Role, bool) {
+	switch r {
+	case api.RoleAdmin:
+		return RoleAdmin, true
+	case api.RoleUser:
+		return RoleUser, true
+	}
+
+	return "", false
+}
+
+func roleToAPI(r Role) api.Role {
+	switch r {
+	case RoleAdmin:
+		return api.RoleAdmin
+	case RoleUser:
+		return api.RoleUser
+	}
+
+	return ""
 }
