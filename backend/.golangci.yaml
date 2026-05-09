@@ -8,6 +8,11 @@ run:
 
 linters:
   default: standard
+  enable:
+    - nlreturn
+  settings:
+    nlreturn:
+      block-size: 2
   exclusions:
     generated: strict
     presets:

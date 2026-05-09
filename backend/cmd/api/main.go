@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -11,12 +10,15 @@ import (
 	"syscall"
 	"time"
 
+	"avito-internship-fs/internal/auth"
 	"avito-internship-fs/internal/database"
+	"avito-internship-fs/internal/httpx"
 )
 
 func main() {
 	addr := env("HTTP_ADDR", ":8080")
 	dbURL := env("DATABASE_URL", "postgres://assistants:assistants@localhost:5432/assistants?sslmode=disable")
+	jwtSecret := env("JWT_SECRET", "dev-secret-change-me")
 
 	db, err := database.Connect(dbURL)
 	if err != nil {
@@ -26,15 +28,21 @@ func main() {
 
 	_ = db
 
+	issuer, err := auth.NewIssuer(jwtSecret, 24*time.Hour)
+	if err != nil {
+		slog.Error("auth issuer init failed", "error", err)
+		os.Exit(1)
+	}
+	authHandler := auth.NewHandler(issuer)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /_info", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{
 			"status": "ok",
 			"time":   time.Now().UTC().Format(time.RFC3339),
 		})
 	})
+	mux.HandleFunc("POST /dummyLogin", authHandler.DummyLogin)
 
 	server := &http.Server{
 		Addr:              addr,
@@ -71,5 +79,6 @@ func env(key, fallback string) string {
 	if value == "" {
 		return fallback
 	}
+
 	return value
 }
