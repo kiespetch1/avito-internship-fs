@@ -10,11 +10,13 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/api ./cmd/api
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM alpine:3.20
+
+RUN apk add --no-cache wget ca-certificates && adduser -D -u 10001 app
 
 COPY --from=build /out/api /api
 
 EXPOSE 8080
 
-USER nonroot:nonroot
+USER app
 ENTRYPOINT ["/api"]

@@ -12,33 +12,49 @@ import (
 
 	"avito-internship-fs/internal/auth"
 	"avito-internship-fs/internal/categories"
+	"avito-internship-fs/internal/config"
 	"avito-internship-fs/internal/database"
 	"avito-internship-fs/internal/httpx"
+	"avito-internship-fs/internal/llm"
 	"avito-internship-fs/internal/repository"
+	"avito-internship-fs/internal/runs"
 	"avito-internship-fs/internal/service"
 )
 
 func main() {
-	addr := env("HTTP_ADDR", ":8080")
-	dbURL := env("DATABASE_URL", "postgres://assistants:assistants@localhost:5432/assistants?sslmode=disable")
-	jwtSecret := env("JWT_SECRET", "dev-secret-change-me")
+	cfg, err := config.Load("config.yaml")
+	if err != nil {
+		slog.Error("config load failed", "error", err)
+		os.Exit(1)
+	}
 
-	db, err := database.Connect(dbURL)
+	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("database connection failed", "error", err)
 		os.Exit(1)
 	}
 
-	issuer, err := auth.NewIssuer(jwtSecret, 24*time.Hour)
+	issuer, err := auth.NewIssuer(cfg.JWTSecret, cfg.JWTTTL)
 	if err != nil {
 		slog.Error("auth issuer init failed", "error", err)
 		os.Exit(1)
 	}
 	authHandler := auth.NewHandler(issuer)
 
+	provider, err := resolveLLMProvider(cfg.LLM)
+	if err != nil {
+		slog.Error("llm provider init failed", "error", err)
+		os.Exit(1)
+	}
+
 	categoryRepo := repository.NewCategoryRepository(db)
 	categoryService := service.NewCategoryService(categoryRepo)
 	categoriesHandler := categories.NewHandler(categoryService)
+
+	assistantRepo := repository.NewAssistantRepository(db)
+	runRepo := repository.NewRunRepository(db)
+	runService := service.NewRunService(assistantRepo, runRepo, provider, cfg.LLM.Timeout)
+	runsHandler := runs.NewHandler(runService)
 
 	authed := auth.RequireAuth(issuer)
 	adminOnly := func(h http.Handler) http.Handler {
@@ -55,15 +71,22 @@ func main() {
 	mux.HandleFunc("POST /dummyLogin", authHandler.DummyLogin)
 	mux.Handle("GET /categories", authed(http.HandlerFunc(categoriesHandler.List)))
 	mux.Handle("POST /categories", adminOnly(http.HandlerFunc(categoriesHandler.Create)))
+	mux.Handle("POST /assistants/{assistantId}/run", authed(http.HandlerFunc(runsHandler.Run)))
 
 	server := &http.Server{
-		Addr:              addr,
+		Addr:              cfg.HTTPAddr,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go func() {
-		slog.Info("starting backend", "addr", addr)
+		slog.Info("starting backend",
+			"addr", cfg.HTTPAddr,
+			"llm.provider", cfg.LLM.Provider,
+			"llm.timeout", cfg.LLM.Timeout,
+			"llm.model", cfg.LLM.DefaultModel,
+			"jwt.ttl", cfg.JWTTTL,
+		)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("listen failed", "error", err)
 			os.Exit(1)
@@ -86,11 +109,11 @@ func main() {
 	slog.Info("backend stopped")
 }
 
-func env(key, fallback string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
+func resolveLLMProvider(cfg config.LLMConfig) (llm.Provider, error) {
+	switch cfg.Provider {
+	case "mock", "":
+		return llm.NewMockProvider(), nil
+	default:
+		return nil, errors.New("unsupported llm provider: " + cfg.Provider)
 	}
-
-	return value
 }
