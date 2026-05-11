@@ -10,6 +10,7 @@ import (
 
 	"avito-internship-fs/internal/domain"
 	"avito-internship-fs/internal/llm"
+	"avito-internship-fs/internal/repository"
 )
 
 type fakeAssistantRepo struct {
@@ -77,6 +78,10 @@ func (r *fakeRunRepo) MarkFailed(_ context.Context, id uuid.UUID, errMsg string,
 	r.store[id] = run
 
 	return nil
+}
+
+func (r *fakeRunRepo) List(_ context.Context, _ repository.RunListFilter) ([]domain.AssistantRun, int, error) {
+	return nil, 0, nil
 }
 
 func (r *fakeRunRepo) GetByID(_ context.Context, id uuid.UUID) (domain.AssistantRun, error) {

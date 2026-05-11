@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"avito-internship-fs/internal/assistants"
 	"avito-internship-fs/internal/auth"
 	"avito-internship-fs/internal/categories"
 	"avito-internship-fs/internal/config"
 	"avito-internship-fs/internal/database"
-	"avito-internship-fs/internal/httpx"
 	"avito-internship-fs/internal/llm"
 	"avito-internship-fs/internal/repository"
 	"avito-internship-fs/internal/runs"
@@ -39,7 +39,6 @@ func main() {
 		slog.Error("auth issuer init failed", "error", err)
 		os.Exit(1)
 	}
-	authHandler := auth.NewHandler(issuer)
 
 	provider, err := resolveLLMProvider(cfg.LLM)
 	if err != nil {
@@ -48,34 +47,20 @@ func main() {
 	}
 
 	categoryRepo := repository.NewCategoryRepository(db)
-	categoryService := service.NewCategoryService(categoryRepo)
-	categoriesHandler := categories.NewHandler(categoryService)
-
 	assistantRepo := repository.NewAssistantRepository(db)
 	runRepo := repository.NewRunRepository(db)
-	runService := service.NewRunService(assistantRepo, runRepo, provider, cfg.LLM.Timeout)
-	runsHandler := runs.NewHandler(runService)
 
-	authed := auth.RequireAuth(issuer)
-	adminOnly := func(h http.Handler) http.Handler {
-		return authed(auth.RequireRole(auth.RoleAdmin)(h))
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /_info", func(w http.ResponseWriter, _ *http.Request) {
-		httpx.WriteJSON(w, http.StatusOK, map[string]string{
-			"status": "ok",
-			"time":   time.Now().UTC().Format(time.RFC3339),
-		})
+	handler := newRouter(routerDeps{
+		Issuer:            issuer,
+		AuthHandler:       auth.NewHandler(issuer),
+		CategoriesHandler: categories.NewHandler(service.NewCategoryService(categoryRepo)),
+		AssistantsHandler: assistants.NewHandler(service.NewAssistantService(assistantRepo)),
+		RunsHandler:       runs.NewHandler(service.NewRunService(assistantRepo, runRepo, provider, cfg.LLM.Timeout)),
 	})
-	mux.HandleFunc("POST /dummyLogin", authHandler.DummyLogin)
-	mux.Handle("GET /categories", authed(http.HandlerFunc(categoriesHandler.List)))
-	mux.Handle("POST /categories", adminOnly(http.HandlerFunc(categoriesHandler.Create)))
-	mux.Handle("POST /assistants/{assistantId}/run", authed(http.HandlerFunc(runsHandler.Run)))
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

@@ -16,6 +16,7 @@ import (
 	"avito-internship-fs/internal/auth"
 	"avito-internship-fs/internal/domain"
 	"avito-internship-fs/internal/llm"
+	"avito-internship-fs/internal/service"
 )
 
 type fakeService struct {
@@ -24,6 +25,10 @@ type fakeService struct {
 
 func (f *fakeService) Run(ctx context.Context, a, u uuid.UUID, p string) (domain.AssistantRun, error) {
 	return f.fn(ctx, a, u, p)
+}
+
+func (f *fakeService) List(_ context.Context, _ service.RunListInput) ([]domain.AssistantRun, int, error) {
+	return nil, 0, nil
 }
 
 func authedRequest(method, path, body string, userID uuid.UUID) *http.Request {

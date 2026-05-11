@@ -9,6 +9,7 @@ import (
 
 	"avito-internship-fs/internal/domain"
 	"avito-internship-fs/internal/llm"
+	"avito-internship-fs/internal/repository"
 )
 
 type AssistantRepo interface {
@@ -20,6 +21,27 @@ type RunRepo interface {
 	MarkSuccess(ctx context.Context, id uuid.UUID, output string, tokensIn, tokensOut, latencyMs int, finishReason string) error
 	MarkFailed(ctx context.Context, id uuid.UUID, errMsg string, latencyMs int) error
 	GetByID(ctx context.Context, id uuid.UUID) (domain.AssistantRun, error)
+	List(ctx context.Context, f repository.RunListFilter) ([]domain.AssistantRun, int, error)
+}
+
+type RunListInput struct {
+	UserID      *uuid.UUID
+	AssistantID *uuid.UUID
+	Status      *domain.RunStatus
+	Page        int
+	PageSize    int
+}
+
+func (s *RunService) List(ctx context.Context, in RunListInput) ([]domain.AssistantRun, int, error) {
+	page, pageSize := normalizePage(in.Page, in.PageSize, defaultRunsPageSize, maxPageSize)
+
+	return s.runs.List(ctx, repository.RunListFilter{
+		UserID:      in.UserID,
+		AssistantID: in.AssistantID,
+		Status:      in.Status,
+		Limit:       pageSize,
+		Offset:      (page - 1) * pageSize,
+	})
 }
 
 type RunService struct {

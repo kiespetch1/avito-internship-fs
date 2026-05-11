@@ -2,10 +2,8 @@ package runs
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -14,12 +12,14 @@ import (
 	"avito-internship-fs/internal/domain"
 	"avito-internship-fs/internal/httpx"
 	"avito-internship-fs/internal/llm"
+	"avito-internship-fs/internal/service"
 )
 
 const maxUserPromptLen = 8000
 
 type Service interface {
 	Run(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.AssistantRun, error)
+	List(ctx context.Context, in service.RunListInput) ([]domain.AssistantRun, int, error)
 }
 
 type Handler struct {
@@ -28,6 +28,11 @@ type Handler struct {
 
 func NewHandler(svc Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+type listResponse struct {
+	Runs       []api.AssistantRun `json:"runs"`
+	Pagination api.Pagination     `json:"pagination"`
 }
 
 func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
@@ -45,19 +50,12 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req api.PostAssistantsAssistantIdRunJSONRequestBody
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "malformed request body")
+	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
-	prompt := strings.TrimSpace(req.UserPrompt)
-	if prompt == "" {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "userPrompt is required")
-		return
-	}
-	if len(prompt) > maxUserPromptLen {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "userPrompt is too long")
+	prompt, err := httpx.RequireField("userPrompt", req.UserPrompt, maxUserPromptLen)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, err.Error())
 		return
 	}
 
@@ -80,16 +78,95 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, toAPIRun(run))
 }
 
-func toAPIRun(r domain.AssistantRun) api.AssistantRun {
-	return api.AssistantRun{
-		Id:          r.ID,
-		AssistantId: r.AssistantID,
-		UserId:      r.UserID,
-		Model:       r.Model,
-		UserPrompt:  r.UserPrompt,
-		Output:      r.Output,
-		Status:      api.RunStatus(r.Status),
-		Error:       r.Error,
-		CreatedAt:   new(r.CreatedAt.UTC()),
+func (h *Handler) MyRuns(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.CodeUnauthorized, "not authenticated")
+		return
 	}
+	in := service.RunListInput{UserID: new(principal.UserID)}
+	if err := applyRunListQuery(r, &in, false); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, err.Error())
+		return
+	}
+
+	h.writeList(w, r.Context(), in)
+}
+
+func (h *Handler) AdminRuns(w http.ResponseWriter, r *http.Request) {
+	in := service.RunListInput{}
+	if err := applyRunListQuery(r, &in, true); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, err.Error())
+		return
+	}
+
+	h.writeList(w, r.Context(), in)
+}
+
+func (h *Handler) writeList(w http.ResponseWriter, ctx context.Context, in service.RunListInput) {
+	items, total, err := h.svc.List(ctx, in)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternalError, "failed to list runs")
+		return
+	}
+
+	resp := listResponse{
+		Runs:       make([]api.AssistantRun, 0, len(items)),
+		Pagination: api.Pagination{Page: in.Page, PageSize: in.PageSize, Total: total},
+	}
+	for _, run := range items {
+		resp.Runs = append(resp.Runs, toAPIRun(run))
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func applyRunListQuery(r *http.Request, in *service.RunListInput, allowAssistantID bool) error {
+	q := r.URL.Query()
+
+	if raw := q.Get("status"); raw != "" {
+		switch domain.RunStatus(raw) {
+		case domain.RunPending, domain.RunSuccess, domain.RunFailed:
+			in.Status = new(domain.RunStatus(raw))
+		default:
+			return errors.New("invalid status")
+		}
+	}
+	if allowAssistantID {
+		if raw := q.Get("assistantId"); raw != "" {
+			id, err := uuid.Parse(raw)
+			if err != nil {
+				return errors.New("invalid assistantId")
+			}
+			in.AssistantID = &id
+		}
+	}
+	page, pageSize, err := httpx.PageParams(q, 20)
+	if err != nil {
+		return err
+	}
+	in.Page, in.PageSize = page, pageSize
+
+	return nil
+}
+
+func toAPIRun(r domain.AssistantRun) api.AssistantRun {
+	out := api.AssistantRun{
+		Id:            r.ID,
+		AssistantId:   r.AssistantID,
+		AssistantName: r.AssistantName,
+		CategoryName:  r.CategoryName,
+		UserId:        r.UserID,
+		Model:         r.Model,
+		UserPrompt:    r.UserPrompt,
+		Output:        r.Output,
+		Status:        api.RunStatus(r.Status),
+		Error:         r.Error,
+		CreatedAt:     new(r.CreatedAt.UTC()),
+	}
+	if r.CategoryID != nil {
+		out.CategoryId = new(*r.CategoryID)
+	}
+
+	return out
 }

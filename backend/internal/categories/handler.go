@@ -2,10 +2,8 @@ package categories
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -50,19 +48,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	var req api.PostCategoriesJSONRequestBody
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "malformed request body")
+	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "name is required")
-		return
-	}
-	if len(name) > maxCategoryNameLen {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "name is too long")
+	name, err := httpx.RequireField("name", req.Name, maxCategoryNameLen)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, err.Error())
 		return
 	}
 
@@ -82,12 +73,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func toAPICategory(c domain.Category) api.Category {
-	created := c.CreatedAt.UTC()
-
 	return api.Category{
 		Id:          openapi_types.UUID(c.ID),
 		Name:        c.Name,
 		Description: c.Description,
-		CreatedAt:   &created,
+		CreatedAt:   new(c.CreatedAt.UTC()),
 	}
 }

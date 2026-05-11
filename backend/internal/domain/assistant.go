@@ -9,6 +9,7 @@ import (
 type Assistant struct {
 	ID                uuid.UUID
 	CategoryID        uuid.UUID
+	CategoryName      *string
 	Name              string
 	Description       string
 	Model             string
