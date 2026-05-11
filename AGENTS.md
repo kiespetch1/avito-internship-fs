@@ -29,6 +29,7 @@
 ## Boundaries
 - Always: Keep backend/frontend API behavior aligned with `api.yaml`, in case of conflict between definition and user request let user know
 - Always: Preserve role checks and do not expose `systemPrompt` to regular users
+- Always: Keep code strictly typed; do not use `any`, implicit `any`, unchecked casts, type assertions to bypass errors, or similar type escapes unless the user explicitly approves the exception
 - Ask first: Database schema changes after migrations are established
 - Ask first: Adding large dependencies or changing the chosen stack
 - Never: Commit secrets, real API keys, `.env`, `node_modules/`, or generated build output
