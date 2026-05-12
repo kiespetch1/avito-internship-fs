@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { PaginationControl } from "@/components/PaginationControl";
 import { QueryStateBoundary } from "@/components/QueryStateBoundary";
+import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,14 +80,40 @@ export function CatalogPage() {
 
   return (
     <section className="flex flex-col gap-8">
-      <header>
-        <p className="text-sm font-semibold text-primary">AI-каталог</p>
-        <h1 className="mt-1 text-4xl font-extrabold tracking-tight">
-          Ассистенты
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Найдите подходящего AI-ассистента и запустите его с вашим контекстом.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-primary">AI-каталог</p>
+          <h1 className="mt-1 text-4xl font-extrabold tracking-tight">
+            Ассистенты
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Найдите подходящего AI-ассистента и запустите его с вашим контекстом.
+          </p>
+        </div>
+        {isAdmin && (
+          <div className="flex gap-2">
+            <Button
+              variant="soft"
+              size="sm"
+              render={
+                <Link to="/admin/categories/new">
+                  <Plus />
+                  Категория
+                </Link>
+              }
+            />
+            <Button
+              variant="black"
+              size="sm"
+              render={
+                <Link to="/admin/assistants/new">
+                  <Plus />
+                  Ассистент
+                </Link>
+              }
+            />
+          </div>
+        )}
       </header>
 
       <div className="flex flex-wrap gap-3">

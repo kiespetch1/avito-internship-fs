@@ -9,6 +9,9 @@ import { CatalogPage } from "@/pages/CatalogPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { MyRunsPage } from "@/pages/MyRunsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { EditAssistantPage } from "@/pages/admin/EditAssistantPage";
+import { NewAssistantPage } from "@/pages/admin/NewAssistantPage";
+import { NewCategoryPage } from "@/pages/admin/NewCategoryPage";
 
 function NotFoundRoute() {
   const { isAuthenticated } = useAuth();
@@ -59,6 +62,30 @@ export function App() {
             element={
               <ProtectedRoute role="admin">
                 <AdminRunsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="admin/categories/new"
+            element={
+              <ProtectedRoute role="admin">
+                <NewCategoryPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="admin/assistants/new"
+            element={
+              <ProtectedRoute role="admin">
+                <NewAssistantPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="admin/assistants/:id/edit"
+            element={
+              <ProtectedRoute role="admin">
+                <EditAssistantPage />
               </ProtectedRoute>
             }
           />

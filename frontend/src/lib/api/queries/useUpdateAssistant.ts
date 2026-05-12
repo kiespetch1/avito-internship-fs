@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type AssistantUpdateIn, assistants } from "../endpoints";
-import { qk } from "../queryKeys";
+import { type AssistantUpdateIn, assistants } from "@/lib/api";
+import { qk } from "@/lib/api/queryKeys.ts";
 
 export function useUpdateAssistant(id: string) {
   const qc = useQueryClient();

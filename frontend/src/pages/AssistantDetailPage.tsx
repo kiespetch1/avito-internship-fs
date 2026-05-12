@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
+import { AlertCircle, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { QueryStateBoundary } from "@/components/QueryStateBoundary";
 import { RunStatusBadge } from "@/components/RunStatusBadge";
@@ -114,9 +114,23 @@ export function AssistantDetailPage() {
                     <Tag variant="secondary">Неактивен</Tag>
                   )}
                 </div>
-                <h1 className="text-4xl font-extrabold tracking-tight">
-                  {assistant.name}
-                </h1>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h1 className="text-4xl font-extrabold tracking-tight">
+                    {assistant.name}
+                  </h1>
+                  {isAdmin && (
+                    <Button
+                      variant="soft"
+                      size="sm"
+                      render={
+                        <Link to={`/admin/assistants/${assistant.id}/edit`}>
+                          <Pencil />
+                          Редактировать
+                        </Link>
+                      }
+                    />
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {assistant.description}
                 </p>
