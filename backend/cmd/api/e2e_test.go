@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -43,7 +44,7 @@ func TestE2E_AdminCreatesCategoryAndAssistant_UserRunsIt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	server := newTestServer(ctx, t)
+	server := newTestServer(ctx, t, nil)
 	t.Cleanup(server.Close)
 
 	adminToken := dummyLogin(t, server, auth.RoleAdmin)
@@ -87,7 +88,7 @@ func TestE2E_UserCannotRunInactiveAssistant(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	server := newTestServer(ctx, t)
+	server := newTestServer(ctx, t, nil)
 	t.Cleanup(server.Close)
 
 	adminToken := dummyLogin(t, server, auth.RoleAdmin)
@@ -113,6 +114,209 @@ func TestE2E_UserCannotRunInactiveAssistant(t *testing.T) {
 	}
 }
 
+// TestE2E_AssistantListFilteredByCategoryId verifies that GET /assistants?categoryId=...
+// returns only assistants from the requested category. Hits the real SQL filter
+// in the assistants repository via the full HTTP router.
+func TestE2E_AssistantListFilteredByCategoryId(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	server := newTestServer(ctx, t, nil)
+	t.Cleanup(server.Close)
+
+	adminToken := dummyLogin(t, server, auth.RoleAdmin)
+	userToken := dummyLogin(t, server, auth.RoleUser)
+
+	foodCat := createCategory(t, server, adminToken, "Еда", "")
+	sportCat := createCategory(t, server, adminToken, "Спорт", "")
+
+	cook := createAssistant(t, server, adminToken, api.AssistantCreateIn{
+		CategoryId: openapi_types.UUID(foodCat.Id), Name: "Повар",
+		Description: "Рецепты", Model: "gpt-4o-mini", SystemPrompt: "Ты повар",
+	})
+	baker := createAssistant(t, server, adminToken, api.AssistantCreateIn{
+		CategoryId: openapi_types.UUID(foodCat.Id), Name: "Пекарь",
+		Description: "Выпечка", Model: "gpt-4o-mini", SystemPrompt: "Ты пекарь",
+	})
+	coach := createAssistant(t, server, adminToken, api.AssistantCreateIn{
+		CategoryId: openapi_types.UUID(sportCat.Id), Name: "Тренер",
+		Description: "Тренировки", Model: "gpt-4o-mini", SystemPrompt: "Ты тренер",
+	})
+
+	resp := listAssistants(t, server, userToken, "?categoryId="+foodCat.Id.String())
+	if resp.Pagination.Total != 2 {
+		t.Fatalf("food filter: expected total=2, got %d", resp.Pagination.Total)
+	}
+	gotIDs := map[uuid.UUID]bool{}
+	for _, a := range resp.Assistants {
+		gotIDs[a.Id] = true
+		if a.CategoryId != openapi_types.UUID(foodCat.Id) {
+			t.Fatalf("food filter: assistant %s has categoryId=%s, expected %s", a.Id, a.CategoryId, foodCat.Id)
+		}
+	}
+	if !gotIDs[cook.Id] || !gotIDs[baker.Id] {
+		t.Fatalf("food filter: expected cook+baker, got %+v", resp.Assistants)
+	}
+	if gotIDs[coach.Id] {
+		t.Fatalf("food filter: coach from sport category leaked in")
+	}
+
+	resp = listAssistants(t, server, userToken, "?categoryId="+sportCat.Id.String())
+	if resp.Pagination.Total != 1 || len(resp.Assistants) != 1 || resp.Assistants[0].Id != coach.Id {
+		t.Fatalf("sport filter: expected only coach, got %+v", resp.Assistants)
+	}
+
+	resp = listAssistants(t, server, userToken, "")
+	if resp.Pagination.Total != 3 {
+		t.Fatalf("no filter: expected total=3, got %d", resp.Pagination.Total)
+	}
+}
+
+// TestE2E_CategoriesListReturnsCreatedItems covers GET /categories after
+// admin creates several categories — exercises the categories.List repository path.
+func TestE2E_CategoriesListReturnsCreatedItems(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	server := newTestServer(ctx, t, nil)
+	t.Cleanup(server.Close)
+
+	adminToken := dummyLogin(t, server, auth.RoleAdmin)
+	userToken := dummyLogin(t, server, auth.RoleUser)
+
+	createCategory(t, server, adminToken, "Еда", "Рецепты")
+	createCategory(t, server, adminToken, "Спорт", "Тренировки")
+
+	status, raw := doJSON(t, server, http.MethodGet, "/categories", userToken, nil)
+	if status != http.StatusOK {
+		t.Fatalf("list categories: status=%d body=%s", status, raw)
+	}
+	var resp struct {
+		Categories []api.Category `json:"categories"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Categories) != 2 {
+		t.Fatalf("expected 2 categories, got %d", len(resp.Categories))
+	}
+}
+
+// TestE2E_AssistantCreateRejectsNonexistentCategory verifies that creating an
+// assistant with a categoryId that does not exist fails — exercises the
+// categories.Exists check in the repository layer.
+func TestE2E_AssistantCreateRejectsNonexistentCategory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	server := newTestServer(ctx, t, nil)
+	t.Cleanup(server.Close)
+
+	adminToken := dummyLogin(t, server, auth.RoleAdmin)
+
+	body := api.AssistantCreateIn{
+		CategoryId:   uuid.New(),
+		Name:         "Призрак",
+		Description:  "не должно создаться",
+		Model:        "gpt-4o-mini",
+		SystemPrompt: "test",
+	}
+	status, raw := doJSON(t, server, http.MethodPost, "/assistants", adminToken, body)
+	if status != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing category, got %d: %s", status, raw)
+	}
+	if !strings.Contains(string(raw), "CATEGORY_NOT_FOUND") {
+		t.Fatalf("expected CATEGORY_NOT_FOUND code, got %s", raw)
+	}
+}
+
+// TestE2E_AssistantUpdate verifies PUT /assistants/{id} writes new fields and
+// can flip is_active — exercises assistants.Update in the repository.
+func TestE2E_AssistantUpdate(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	server := newTestServer(ctx, t, nil)
+	t.Cleanup(server.Close)
+
+	adminToken := dummyLogin(t, server, auth.RoleAdmin)
+
+	category := createCategory(t, server, adminToken, "Еда", "")
+	assistant := createAssistant(t, server, adminToken, api.AssistantCreateIn{
+		CategoryId: openapi_types.UUID(category.Id), Name: "Повар",
+		Description: "первая версия", Model: "gpt-4o-mini", SystemPrompt: "v1",
+	})
+
+	updated := api.AssistantUpdateIn{
+		CategoryId:   openapi_types.UUID(category.Id),
+		Name:         "Повар pro",
+		Description:  "обновлённая версия",
+		Model:        "gpt-4o-mini",
+		SystemPrompt: "v2",
+		IsActive:     false,
+	}
+	status, raw := doJSON(t, server, http.MethodPut, "/assistants/"+assistant.Id.String(), adminToken, updated)
+	if status != http.StatusOK {
+		t.Fatalf("update: status=%d body=%s", status, raw)
+	}
+	var got api.Assistant
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Name != "Повар pro" || got.Description != "обновлённая версия" || got.IsActive {
+		t.Fatalf("update did not persist: %+v", got)
+	}
+	if got.SystemPrompt == nil || *got.SystemPrompt != "v2" {
+		t.Fatalf("systemPrompt not updated: %+v", got.SystemPrompt)
+	}
+}
+
+// TestE2E_RunPersistsFailedOnProviderError verifies that when the LLM provider
+// returns an error, the run is persisted with status=failed and shows up in /runs/my.
+// Exercises runs.MarkFailed in the repository.
+func TestE2E_RunPersistsFailedOnProviderError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	server := newTestServer(ctx, t, &failingProvider{msg: "synthetic provider failure"})
+	t.Cleanup(server.Close)
+
+	adminToken := dummyLogin(t, server, auth.RoleAdmin)
+	userToken := dummyLogin(t, server, auth.RoleUser)
+
+	category := createCategory(t, server, adminToken, "Еда", "")
+	assistant := createAssistant(t, server, adminToken, api.AssistantCreateIn{
+		CategoryId: openapi_types.UUID(category.Id), Name: "Повар",
+		Description: "падающий", Model: "gpt-4o-mini", SystemPrompt: "fail me",
+	})
+
+	status, raw := doJSON(t, server, http.MethodPost,
+		"/assistants/"+assistant.Id.String()+"/run", userToken,
+		api.AssistantRunCreateIn{UserPrompt: "hi"})
+	if status != http.StatusBadGateway {
+		t.Fatalf("expected 502 for provider error, got %d: %s", status, raw)
+	}
+
+	myRuns := listMyRuns(t, server, userToken)
+	if myRuns.Pagination.Total != 1 || len(myRuns.Runs) != 1 {
+		t.Fatalf("expected 1 persisted failed run, got %+v", myRuns)
+	}
+	if myRuns.Runs[0].Status != api.Failed {
+		t.Fatalf("expected status=failed, got %s", myRuns.Runs[0].Status)
+	}
+	if myRuns.Runs[0].Error == nil || !strings.Contains(*myRuns.Runs[0].Error, "synthetic provider failure") {
+		t.Fatalf("expected error to mention provider failure, got %+v", myRuns.Runs[0].Error)
+	}
+}
+
+type failingProvider struct {
+	msg string
+}
+
+func (f *failingProvider) Generate(_ context.Context, _ llm.Request) (llm.Response, error) {
+	return llm.Response{}, errors.New(f.msg)
+}
+
 // ----- helpers -----
 
 type testServer struct {
@@ -129,8 +333,12 @@ func (s *testServer) Close() {
 
 func (s *testServer) URL() string { return s.httpSrv.URL }
 
-func newTestServer(ctx context.Context, t *testing.T) *testServer {
+func newTestServer(ctx context.Context, t *testing.T, provider llm.Provider) *testServer {
 	t.Helper()
+
+	if provider == nil {
+		provider = llm.NewMockProvider()
+	}
 
 	pgC, err := postgres.Run(ctx,
 		"postgres:16-alpine",
@@ -176,7 +384,7 @@ func newTestServer(ctx context.Context, t *testing.T) *testServer {
 		CategoriesHandler: categories.NewHandler(service.NewCategoryService(categoryRepo)),
 		AssistantsHandler: assistants.NewHandler(service.NewAssistantService(assistantRepo)),
 		RunsHandler: runs.NewHandler(service.NewRunService(
-			assistantRepo, runRepo, llm.NewMockProvider(), 5*time.Second,
+			assistantRepo, runRepo, provider, 5*time.Second,
 		)),
 	})
 
@@ -262,6 +470,24 @@ func runAssistant(t *testing.T, s *testServer, token string, assistantID uuid.UU
 		t.Fatalf("decode run: %v", err)
 	}
 	return r
+}
+
+type assistantListResp struct {
+	Assistants []api.Assistant `json:"assistants"`
+	Pagination api.Pagination  `json:"pagination"`
+}
+
+func listAssistants(t *testing.T, s *testServer, token, query string) assistantListResp {
+	t.Helper()
+	status, raw := doJSON(t, s, http.MethodGet, "/assistants"+query, token, nil)
+	if status != http.StatusOK {
+		t.Fatalf("list assistants %q: status=%d body=%s", query, status, raw)
+	}
+	var resp assistantListResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("decode assistants: %v", err)
+	}
+	return resp
 }
 
 type runListResp struct {

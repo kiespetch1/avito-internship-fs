@@ -1,0 +1,195 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"avito-internship-fs/internal/domain"
+	"avito-internship-fs/internal/repository"
+)
+
+type fakeAssistantWriteRepo struct {
+	getFn    func(ctx context.Context, id uuid.UUID) (domain.Assistant, error)
+	createFn func(ctx context.Context, a domain.Assistant) (domain.Assistant, error)
+	updateFn func(ctx context.Context, a domain.Assistant) (domain.Assistant, error)
+	listFn   func(ctx context.Context, f repository.AssistantListFilter) ([]domain.Assistant, int, error)
+}
+
+func (f *fakeAssistantWriteRepo) Get(ctx context.Context, id uuid.UUID) (domain.Assistant, error) {
+	return f.getFn(ctx, id)
+}
+
+func (f *fakeAssistantWriteRepo) Create(ctx context.Context, a domain.Assistant) (domain.Assistant, error) {
+	return f.createFn(ctx, a)
+}
+
+func (f *fakeAssistantWriteRepo) Update(ctx context.Context, a domain.Assistant) (domain.Assistant, error) {
+	return f.updateFn(ctx, a)
+}
+
+func (f *fakeAssistantWriteRepo) List(ctx context.Context, fl repository.AssistantListFilter) ([]domain.Assistant, int, error) {
+	return f.listFn(ctx, fl)
+}
+
+func TestAssistantServiceGetPassthrough(t *testing.T) {
+	want := domain.Assistant{ID: uuid.New(), Name: "x"}
+	repo := &fakeAssistantWriteRepo{
+		getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return want, nil },
+	}
+	got, err := NewAssistantService(repo).Get(context.Background(), want.ID)
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if got.ID != want.ID {
+		t.Fatalf("got %v want %v", got.ID, want.ID)
+	}
+}
+
+func TestAssistantServiceGetPropagatesNotFound(t *testing.T) {
+	repo := &fakeAssistantWriteRepo{
+		getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) {
+			return domain.Assistant{}, domain.ErrAssistantNotFound
+		},
+	}
+	_, err := NewAssistantService(repo).Get(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrAssistantNotFound) {
+		t.Fatalf("err: %v", err)
+	}
+}
+
+func TestAssistantServiceCreateMapsFields(t *testing.T) {
+	categoryID := uuid.New()
+	example := "ex"
+	var captured domain.Assistant
+	repo := &fakeAssistantWriteRepo{
+		createFn: func(_ context.Context, a domain.Assistant) (domain.Assistant, error) {
+			captured = a
+			a.ID = uuid.New()
+
+			return a, nil
+		},
+	}
+	in := AssistantCreateInput{
+		CategoryID:        categoryID,
+		Name:              "Повар",
+		Description:       "desc",
+		Model:             "gpt",
+		SystemPrompt:      "sys",
+		ExampleUserPrompt: &example,
+		IsActive:          true,
+	}
+	out, err := NewAssistantService(repo).Create(context.Background(), in)
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if out.ID == (uuid.UUID{}) {
+		t.Fatalf("expected generated id")
+	}
+	if captured.CategoryID != categoryID || captured.Name != "Повар" || captured.SystemPrompt != "sys" || !captured.IsActive {
+		t.Fatalf("captured: %+v", captured)
+	}
+	if captured.ExampleUserPrompt == nil || *captured.ExampleUserPrompt != "ex" {
+		t.Fatalf("example prompt not propagated: %+v", captured.ExampleUserPrompt)
+	}
+}
+
+func TestAssistantServiceUpdateMapsFields(t *testing.T) {
+	id := uuid.New()
+	categoryID := uuid.New()
+	var captured domain.Assistant
+	repo := &fakeAssistantWriteRepo{
+		updateFn: func(_ context.Context, a domain.Assistant) (domain.Assistant, error) {
+			captured = a
+			return a, nil
+		},
+	}
+	_, err := NewAssistantService(repo).Update(context.Background(), AssistantUpdateInput{
+		ID:           id,
+		CategoryID:   categoryID,
+		Name:         "renamed",
+		Description:  "d",
+		Model:        "gpt",
+		SystemPrompt: "sys",
+		IsActive:     false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if captured.ID != id || captured.CategoryID != categoryID || captured.Name != "renamed" || captured.IsActive {
+		t.Fatalf("captured: %+v", captured)
+	}
+}
+
+func TestAssistantServiceListNormalizesPagination(t *testing.T) {
+	var captured repository.AssistantListFilter
+	repo := &fakeAssistantWriteRepo{
+		listFn: func(_ context.Context, f repository.AssistantListFilter) ([]domain.Assistant, int, error) {
+			captured = f
+			return []domain.Assistant{}, 0, nil
+		},
+	}
+	_, _, err := NewAssistantService(repo).List(context.Background(), AssistantListInput{
+		Page:     0,
+		PageSize: 0,
+	})
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if captured.Limit != defaultAssistantsPageSize {
+		t.Fatalf("default page size not applied: got limit=%d want=%d", captured.Limit, defaultAssistantsPageSize)
+	}
+	if captured.Offset != 0 {
+		t.Fatalf("offset for page=1 must be 0, got %d", captured.Offset)
+	}
+}
+
+func TestAssistantServiceListClampsPageSize(t *testing.T) {
+	var captured repository.AssistantListFilter
+	repo := &fakeAssistantWriteRepo{
+		listFn: func(_ context.Context, f repository.AssistantListFilter) ([]domain.Assistant, int, error) {
+			captured = f
+			return nil, 0, nil
+		},
+	}
+	_, _, _ = NewAssistantService(repo).List(context.Background(), AssistantListInput{
+		Page:     2,
+		PageSize: maxPageSize + 50,
+	})
+	if captured.Limit != maxPageSize {
+		t.Fatalf("page size must be clamped to %d, got %d", maxPageSize, captured.Limit)
+	}
+	if captured.Offset != maxPageSize {
+		t.Fatalf("offset for page=2 must be %d, got %d", maxPageSize, captured.Offset)
+	}
+}
+
+func TestAssistantServiceListPassesFilters(t *testing.T) {
+	categoryID := uuid.New()
+	q := "повар"
+	var captured repository.AssistantListFilter
+	repo := &fakeAssistantWriteRepo{
+		listFn: func(_ context.Context, f repository.AssistantListFilter) ([]domain.Assistant, int, error) {
+			captured = f
+			return nil, 0, nil
+		},
+	}
+	_, _, _ = NewAssistantService(repo).List(context.Background(), AssistantListInput{
+		CategoryID:      &categoryID,
+		Query:           &q,
+		IncludeInactive: true,
+		Page:            1,
+		PageSize:        10,
+	})
+	if captured.CategoryID == nil || *captured.CategoryID != categoryID {
+		t.Fatalf("category not propagated: %+v", captured.CategoryID)
+	}
+	if captured.Query == nil || *captured.Query != "повар" {
+		t.Fatalf("query not propagated: %+v", captured.Query)
+	}
+	if !captured.IncludeInactive {
+		t.Fatalf("IncludeInactive not propagated")
+	}
+}
