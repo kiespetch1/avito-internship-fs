@@ -1,7 +1,7 @@
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build run test lint fmt tidy clean generate
+.PHONY: build run test test-e2e lint fmt tidy clean generate
 
 build:
 	$(GO) build -o bin/api ./cmd/api
@@ -14,6 +14,10 @@ run:
 
 test:
 	$(GO) test ./...
+
+# Requires a running Docker daemon (testcontainers spins up Postgres).
+test-e2e:
+	$(GO) test -tags=e2e -count=1 -timeout=180s ./cmd/api/...
 
 lint:
 	$(GO) vet ./...

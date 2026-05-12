@@ -62,6 +62,7 @@ func withCORS(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
+
 			return
 		}
 		next.ServeHTTP(w, r)
