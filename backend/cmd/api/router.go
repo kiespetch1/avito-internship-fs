@@ -42,7 +42,30 @@ func newRouter(d routerDeps) http.Handler {
 	mux.Handle("GET /runs/my", authed(http.HandlerFunc(d.RunsHandler.MyRuns)))
 	mux.Handle("GET /admin/runs", adminOnly(http.HandlerFunc(d.RunsHandler.AdminRuns)))
 
-	return mux
+	return withCORS(mux)
+}
+
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			reqHeaders := r.Header.Get("Access-Control-Request-Headers")
+			if reqHeaders == "" {
+				reqHeaders = "Authorization, Content-Type"
+			}
+			w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func healthcheck(w http.ResponseWriter, _ *http.Request) {

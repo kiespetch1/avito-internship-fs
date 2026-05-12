@@ -1,15 +1,58 @@
+import { lazy, Suspense } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { AppLayout } from "@/components/AppLayout";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { AdminRunsPage } from "@/pages/AdminRunsPage";
+import { AssistantDetailPage } from "@/pages/AssistantDetailPage";
+import { CatalogPage } from "@/pages/CatalogPage";
+import { LoginPage } from "@/pages/LoginPage";
+import { MyRunsPage } from "@/pages/MyRunsPage";
+import { NotFoundPage } from "@/pages/NotFoundPage";
+
+const UiKitPage = import.meta.env.DEV
+  ? lazy(() => import("@/pages/dev/UiKitPage.tsx").then((m) => ({ default: m.UiKitPage })))
+  : null;
+
 export function App() {
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <section className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-6">
-        <p className="text-sm font-medium text-primary">Авито</p>
-        <h1 className="mt-3 text-4xl font-semibold tracking-normal">
-          Каталог AI-ассистентов
-        </h1>
-        <p className="mt-4 max-w-2xl text-base text-muted-foreground">
-          Каталог появится скоро...
-        </p>
-      </section>
-    </main>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/404" element={<NotFoundPage />} />
+        {UiKitPage && (
+          <Route
+            path="/dev/ui"
+            element={
+              <Suspense fallback={null}>
+                <UiKitPage />
+              </Suspense>
+            }
+          />
+        )}
+
+        <Route
+          element={
+            <ProtectedRoute>
+              <AppLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Navigate to="/assistants" replace />} />
+          <Route path="assistants" element={<CatalogPage />} />
+          <Route path="assistants/:id" element={<AssistantDetailPage />} />
+          <Route path="runs/my" element={<MyRunsPage />} />
+          <Route
+            path="admin/runs"
+            element={
+              <ProtectedRoute role="admin">
+                <AdminRunsPage />
+              </ProtectedRoute>
+            }
+          />
+        </Route>
+
+        <Route path="*" element={<Navigate to="/404" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
