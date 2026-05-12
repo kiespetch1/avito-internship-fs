@@ -16,13 +16,35 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   )
 }
 
-function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
+type SelectValueProps = SelectPrimitive.Value.Props & {
+  /**
+   * Map от value к отображаемому label. Когда задан, триггер показывает label
+   * выбранного значения вместо raw value. Если value не найден в map (или null/"") —
+   * показывается placeholder.
+   */
+  items?: Record<string, React.ReactNode>
+}
+
+function SelectValue({ className, items, children, placeholder, ...props }: SelectValueProps) {
+  const renderChildren =
+    children ??
+    (items
+      ? (value: unknown) => {
+          if (value === null || value === undefined || value === "") return placeholder ?? null
+          if (typeof value === "string" && value in items) return items[value]
+          return placeholder ?? null
+        }
+      : undefined)
+
   return (
     <SelectPrimitive.Value
       data-slot="select-value"
       className={cn("flex flex-1 text-left", className)}
+      placeholder={placeholder}
       {...props}
-    />
+    >
+      {renderChildren}
+    </SelectPrimitive.Value>
   )
 }
 

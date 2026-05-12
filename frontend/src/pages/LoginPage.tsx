@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/lib/auth";
 import { ApiError, type Role } from "@/lib/api";
 
@@ -20,10 +22,11 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (isLocationState(location.state) && location.state.from) || "/assistants";
-  const [pending, setPending] = useState<Role | null>(null);
+  const [role, setRole] = useState<Role>("user");
+  const [pending, setPending] = useState(false);
 
-  const handleLogin = async (role: Role) => {
-    setPending(role);
+  const handleLogin = async () => {
+    setPending(true);
     try {
       await login(role);
       navigate(from, { replace: true });
@@ -31,35 +34,69 @@ export function LoginPage() {
       const message = err instanceof ApiError ? err.message : "Не удалось войти";
       toast.error(message);
     } finally {
-      setPending(null);
+      setPending(false);
     }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Вход в каталог</CardTitle>
-          <CardDescription>
+      <div className="w-full max-w-md space-y-6">
+        <div>
+          <p className="text-sm font-semibold text-primary">AI-каталог</p>
+          <h1 className="mt-1 text-4xl font-extrabold tracking-tight">Войти</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
             Тестовый вход через <code>/dummyLogin</code>. Выберите роль.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <Button
-            onClick={() => handleLogin("user")}
-            disabled={pending !== null}
+          </p>
+        </div>
+
+        <RadioGroup
+          value={role}
+          onValueChange={(value) => setRole(value as Role)}
+          className="gap-2"
+        >
+          <Label
+            htmlFor="role-user"
+            className="flex cursor-pointer items-start gap-3 rounded-2xl bg-secondary p-4 has-data-checked:ring-2 has-data-checked:ring-avito-black"
           >
-            {pending === "user" ? "Входим..." : "Войти как пользователь"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => handleLogin("admin")}
-            disabled={pending !== null}
+            <div className="flex-1 space-y-1">
+              <div className="text-[0.9375rem] font-bold">Пользователь</div>
+              <p className="text-sm text-muted-foreground">
+                Просмотр каталога и запуск ассистентов
+              </p>
+            </div>
+            <RadioGroupItem value="user" id="role-user" />
+          </Label>
+          <Label
+            htmlFor="role-admin"
+            className="flex cursor-pointer items-start gap-3 rounded-2xl bg-secondary p-4 has-data-checked:ring-2 has-data-checked:ring-avito-black"
           >
-            {pending === "admin" ? "Входим..." : "Войти как администратор"}
-          </Button>
-        </CardContent>
-      </Card>
+            <div className="flex-1 space-y-1">
+              <div className="text-[0.9375rem] font-bold">Администратор</div>
+              <p className="text-sm text-muted-foreground">
+                Управление категориями и ассистентами, история всех запусков
+              </p>
+            </div>
+            <RadioGroupItem value="admin" id="role-admin" />
+          </Label>
+        </RadioGroup>
+
+        <Button
+          variant="black"
+          size="lg"
+          className="w-full"
+          onClick={handleLogin}
+          disabled={pending}
+        >
+          {pending ? (
+            <>
+              <Loader2 className="animate-spin" />
+              Входим...
+            </>
+          ) : (
+            <>Войти как {role === "admin" ? "Admin" : "User"}</>
+          )}
+        </Button>
+      </div>
     </div>
   );
 }

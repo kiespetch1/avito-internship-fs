@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Search } from "lucide-react";
 import { PaginationControl } from "@/components/PaginationControl";
 import { QueryStateBoundary } from "@/components/QueryStateBoundary";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,8 +14,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { assistants as assistantsApi, categories as categoriesApi } from "@/lib/api";
+import { Tag } from "@/components/ui/tag";
+import { assistants as assistantsApi } from "@/lib/api";
+import { useCategories } from "@/lib/api/queries/useCategories";
 import { qk } from "@/lib/api/queryKeys";
 import { useAuth } from "@/lib/auth";
 import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
@@ -50,10 +53,15 @@ export function CatalogPage() {
     }
   }, [debouncedSearch, filters.q, setFilters]);
 
-  const categoriesQuery = useQuery({
-    queryKey: qk.categories.all(),
-    queryFn: ({ signal }) => categoriesApi.list(signal),
-  });
+  const categoriesQuery = useCategories();
+
+  const categoryLabels = useMemo<Record<string, string>>(() => {
+    const map: Record<string, string> = { [ALL_CATEGORIES]: "Все категории" };
+    for (const c of categoriesQuery.data?.categories ?? []) {
+      map[c.id] = c.name;
+    }
+    return map;
+  }, [categoriesQuery.data]);
 
   const listQuery = {
     q: filters.q || undefined,
@@ -70,90 +78,123 @@ export function CatalogPage() {
   });
 
   return (
-    <section className="flex flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Каталог ассистентов</h1>
-        <p className="text-sm text-muted-foreground">
+    <section className="flex flex-col gap-8">
+      <header>
+        <p className="text-sm font-semibold text-primary">AI-каталог</p>
+        <h1 className="mt-1 text-4xl font-extrabold tracking-tight">
+          Ассистенты
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
           Найдите подходящего AI-ассистента и запустите его с вашим контекстом.
         </p>
       </header>
 
-      <div className="grid gap-3 rounded-md border border-border p-4 sm:grid-cols-[1fr_220px_auto]">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="catalog-search">Поиск</Label>
+      <div className="flex flex-wrap gap-3">
+        <div className="relative w-64">
+          <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            id="catalog-search"
-            placeholder="По названию или описанию"
+            className="pl-9"
+            placeholder="Поиск по названию или описанию"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label>Категория</Label>
-          <Select
-            value={filters.categoryId === "" ? ALL_CATEGORIES : filters.categoryId}
-            onValueChange={(v) =>
-              setFilters({
-                categoryId: v === null || v === ALL_CATEGORIES ? "" : v,
-                page: 1,
-              })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Все категории" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_CATEGORIES}>Все категории</SelectItem>
-              {(categoriesQuery.data?.categories ?? []).map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select
+          value={filters.categoryId === "" ? ALL_CATEGORIES : filters.categoryId}
+          onValueChange={(v) =>
+            setFilters({
+              categoryId: v === null || v === ALL_CATEGORIES ? "" : v,
+              page: 1,
+            })
+          }
+        >
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Категория" items={categoryLabels} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_CATEGORIES}>Все категории</SelectItem>
+            {(categoriesQuery.data?.categories ?? []).map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {isAdmin && (
-          <div className="flex items-end gap-2">
+          <div className="flex items-center gap-2">
             <Switch
               id="include-inactive"
               checked={filters.includeInactive}
               onCheckedChange={(v) => setFilters({ includeInactive: v, page: 1 })}
             />
-            <Label htmlFor="include-inactive" className="cursor-pointer">
-              Неактивные
-            </Label>
+            <Label htmlFor="include-inactive">Показать неактивных</Label>
           </div>
         )}
       </div>
 
       <QueryStateBoundary
         query={assistantsQuery}
+        loadingFallback={
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <Card
+                key={i}
+                className="overflow-hidden rounded-2xl border bg-secondary p-0 shadow-none"
+              >
+                <Skeleton className="aspect-[4/3] w-full rounded-none" />
+                <div className="space-y-2 p-4">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-5 w-32" />
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+              </Card>
+            ))}
+          </div>
+        }
         isEmpty={(data) => data.assistants.length === 0}
         emptyFallback={
-          <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
             По вашему запросу ничего не найдено.
           </div>
         }
       >
         {(data) => (
-          <div className="flex flex-col gap-4">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex flex-col gap-6">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {data.assistants.map((a) => (
-                <Link key={a.id} to={`/assistants/${a.id}`} className="block">
-                  <Card className="h-full transition-colors hover:border-primary">
-                    <CardHeader>
-                      <div className="flex items-center justify-between gap-2">
-                        <CardTitle className="text-base">{a.name}</CardTitle>
-                        {!a.isActive && <Badge variant="destructive">Выключен</Badge>}
+                <Link
+                  key={a.id}
+                  to={`/assistants/${a.id}`}
+                  className="block transition-transform hover:-translate-y-0.5"
+                >
+                  <Card
+                    className={`h-full overflow-hidden rounded-2xl border bg-secondary p-0 shadow-none ${
+                      a.isActive ? "" : "opacity-60"
+                    }`}
+                  >
+                    <div className="aspect-[4/3] bg-gradient-to-br from-primary/20 to-avito-purple/20" />
+                    <div className="space-y-2 p-4">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Tag>{a.categoryName ?? "Без категории"}</Tag>
+                        {a.isActive ? (
+                          <Tag variant="success">Активен</Tag>
+                        ) : (
+                          <Tag variant="secondary">Неактивен</Tag>
+                        )}
                       </div>
-                      <CardDescription className="line-clamp-2">{a.description}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{a.categoryName ?? "—"}</span>
-                      <span>{a.model}</span>
-                    </CardContent>
+                      <CardTitle className="text-base font-bold">
+                        {a.name}
+                      </CardTitle>
+                      <p className="line-clamp-2 text-xs text-muted-foreground">
+                        {a.description}
+                      </p>
+                      <div className="pt-1 text-xs font-semibold text-muted-foreground">
+                        {a.model}
+                      </div>
+                    </div>
                   </Card>
                 </Link>
               ))}

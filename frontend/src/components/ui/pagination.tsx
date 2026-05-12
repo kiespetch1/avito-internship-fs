@@ -44,7 +44,7 @@ function PaginationLink({
 }: PaginationLinkProps) {
   return (
     <Button
-      variant={isActive ? "black" : "soft"}
+      variant={isActive ? "black" : "ghost"}
       size="icon-lg"
       className={cn("rounded-md text-base font-semibold", className)}
       nativeButton={false}

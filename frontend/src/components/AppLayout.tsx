@@ -1,8 +1,11 @@
+import type { ReactNode } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 
-export function AppLayout() {
+type Props = { children?: ReactNode };
+
+export function AppLayout({ children }: Props) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -40,7 +43,7 @@ export function AppLayout() {
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-8">
-        <Outlet />
+        {children ?? <Outlet />}
       </main>
     </div>
   );

@@ -815,7 +815,7 @@ export function UiKitPage() {
               <div className="flex-1 space-y-1">
                 <div className="text-[0.9375rem] font-bold">Администратор</div>
                 <p className="text-sm text-muted-foreground">
-                  Управление категориями и ассистентами + история всех запусков
+                  Управление категориями и ассистентами, история всех запусков
                 </p>
               </div>
               <RadioGroupItem value="admin" id="role-admin" />

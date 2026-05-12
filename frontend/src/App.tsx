@@ -2,12 +2,25 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { useAuth } from "@/lib/auth";
 import { AdminRunsPage } from "@/pages/AdminRunsPage";
 import { AssistantDetailPage } from "@/pages/AssistantDetailPage";
 import { CatalogPage } from "@/pages/CatalogPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { MyRunsPage } from "@/pages/MyRunsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+
+function NotFoundRoute() {
+  const { isAuthenticated } = useAuth();
+  if (isAuthenticated) {
+    return (
+      <AppLayout>
+        <NotFoundPage />
+      </AppLayout>
+    );
+  }
+  return <NotFoundPage fullScreen />;
+}
 
 const UiKitPage = import.meta.env.DEV
   ? lazy(() => import("@/pages/dev/UiKitPage.tsx").then((m) => ({ default: m.UiKitPage })))
@@ -18,7 +31,7 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/404" element={<NotFoundPage />} />
+        <Route path="/404" element={<NotFoundPage fullScreen />} />
         {UiKitPage && (
           <Route
             path="/dev/ui"
@@ -51,7 +64,7 @@ export function App() {
           />
         </Route>
 
-        <Route path="*" element={<Navigate to="/404" replace />} />
+        <Route path="*" element={<NotFoundRoute />} />
       </Routes>
     </BrowserRouter>
   );
