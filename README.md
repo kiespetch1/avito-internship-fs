@@ -11,6 +11,8 @@ docker compose up --build
 - Backend: http://localhost:8080
 - Frontend: http://localhost:3000
 - Healthcheck: `GET http://localhost:8080/_info`
+- Swagger UI: http://localhost:8080/docs
+- OpenAPI YAML: http://localhost:8080/docs/openapi.yaml
 
 ## Конфигурация
 
@@ -211,3 +213,130 @@ NNNN_short_description.down.sql
 - `frontend` стартует только после готовности backend и БД.
 
 Статус всех сервисов локально — `docker compose ps`.
+
+### Swagger-документация
+
+Backend отдаёт Swagger UI на `GET /docs`. Интерфейс использует корневой `api.yaml`, доступный как `GET /docs/openapi.yaml`, поэтому документация и контракт API остаются синхронизированы с OpenAPI-спецификацией.
+
+## Тесты и покрытие
+
+### Backend
+
+Все команды запускаются из корня репозитория.
+
+| Команда | Что делает |
+| --- | --- |
+| `make -C backend build` | Сборка бинарника `backend/bin/api` |
+| `make -C backend lint` | `go vet` + `golangci-lint run ./...` (если установлен) |
+| `make -C backend test` | Unit-тесты `go test ./...` |
+| `make -C backend test-e2e` | E2E-тесты за тегом `e2e` через testcontainers (поднимает реальный Postgres в Docker) |
+
+Подробный coverage:
+
+```bash
+cd backend
+go test -covermode=atomic -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out      # текстовая сводка по функциям
+go tool cover -html=coverage.out      # HTML-отчёт в браузере
+```
+
+Покрытие unit-тестами на момент написания (`go test -covermode=atomic ./...`):
+
+| Пакет | Покрытие |
+| --- | --- |
+| `internal/httpx` | 94.3% |
+| `internal/service` | 92.0% |
+| `internal/llm` | 91.7% |
+| `internal/runs` | 88.2% |
+| `internal/assistants` | 86.7% |
+| `internal/auth` | 85.2% |
+| `internal/config` | 84.4% |
+| `internal/categories` | 84.0% |
+| `cmd/api` | 35.8% (бóльшая часть покрыта e2e за тегом) |
+| `internal/database`, `internal/repository` | 0% (тонкие обёртки над `pgx`, покрываются e2e) |
+| **Total** | **58.4%** |
+
+Доменная логика (сервисы, валидация, LLM, HTTP-обвязка) покрыта на 84–94%. Пакеты, работающие с реальной БД (`repository`, `database`, основной маршрутизатор `cmd/api`), сознательно покрываются `make test-e2e` через testcontainers — там запускается весь HTTP-стек поверх настоящего Postgres, поэтому unit-coverage по этим пакетам остаётся низким, но фактическое поведение проверено.
+
+### Frontend
+
+| Команда | Что делает |
+| --- | --- |
+| `pnpm -C frontend install` | Установка зависимостей (требует `pnpm install --frozen-lockfile` в CI) |
+| `pnpm -C frontend lint` | ESLint |
+| `pnpm -C frontend typecheck` | `tsc -b --pretty false` |
+| `pnpm -C frontend test` | Vitest (jsdom + Testing Library) |
+| `pnpm -C frontend build` | Production-сборка через Vite |
+
+Coverage:
+
+```bash
+cd frontend
+pnpm exec vitest run --coverage
+```
+
+Текущее состояние: **5 test files, 20 tests passed**. Тесты сосредоточены на пограничных и легко-тестируемых модулях:
+
+- `src/components/ProtectedRoute.test.tsx` — гард авторизации и ролей.
+- `src/components/RunStatusBadge.test.tsx` — маппинг статусов запусков.
+- `src/lib/forms/schemas/assistantSchema.test.ts` — Zod-схема формы ассистента.
+- `src/lib/format.test.ts` — форматтеры дат/значений.
+- `src/lib/hooks/useDebouncedValue.test.ts` — дебаунс-хук.
+
+Общий line-coverage по фронтенду — низкий (≈2–3%) и в основном обусловлен большим объёмом UI-страниц и shadcn-компонентов, не покрытых юнитами; реальные сценарии (запуск ассистента, фильтрация каталога, админ-CRUD) проверяются вручную и через e2e backend-тестов. Минимальный набор unit-тестов на критических утилитах и компонентах присутствует.
+
+### CI
+
+GitHub Actions workflow `.github/workflows/ci.yml` повторяет локальные команды:
+
+- Job **Backend**: `make generate` + проверка `git diff` для OpenAPI Go-типов → `make build` → `golangci-lint` → `go test -race -coverprofile` → `make test-e2e` (testcontainers поднимает Postgres в Docker) → артефакт `backend-coverage`.
+- Job **Frontend**: `pnpm install --frozen-lockfile` → `pnpm gen:api` + проверка `git diff` для OpenAPI TypeScript-типов → `pnpm lint` → `pnpm typecheck` → `pnpm exec vitest run --coverage` → артефакт `frontend-coverage` → `pnpm build`.
+
+Запускается на push и PR в `main`/`master`. Concurrency-группа отменяет устаревшие раны для той же ветки.
+
+Проверка отклонения схемы OpenAPI — отдельное решение: `api.yaml` остаётся источником истины, а CI падает, если сгенерированные backend/frontend типы не обновлены после изменения контракта.
+
+## Нагрузочное тестирование
+
+Сценарий k6 для `GET /assistants` лежит в `load-tests/assistants_list.js`. Тестирует «горячий» endpoint каталога с разными комбинациями параметров: базовая пагинация, увеличенный `pageSize`, фильтр `categoryId`, поиск `q` (использует `pg_trgm`-индекс).
+
+### Запуск
+
+Backend должен быть поднят (`docker compose up --build`), категории и ассистенты — засеяны.
+
+```bash
+k6 run load-tests/assistants_list.js
+# с другим хостом или ролью:
+BASE_URL=http://localhost:8080 ROLE=admin k6 run load-tests/assistants_list.js
+```
+
+### Профиль нагрузки
+
+Ramping-VUs: 0 → 20 за 15 с → 50 за 30 с → 0 за 15 с (всего ~60 с). Каждая итерация VU делает 3–4 разнотипных запроса к `/assistants`.
+
+### Пороги (`thresholds`)
+
+- `http_req_failed < 1%`
+- p95 latency `/assistants` < 300 ms
+- p99 latency `/assistants` < 800 ms
+- доля успешных `check` > 99%
+
+Если любой порог не выполняется, k6 завершает run с ненулевым кодом — это удобно встраивать в CI/PR-проверки.
+
+### Результаты прогона
+
+Локально (Docker compose на macOS, M-серия, Postgres в контейнере):
+
+| Метрика | Значение |
+| --- | --- |
+| Всего HTTP-запросов | 13 594 за 60 с |
+| RPS | ≈ 226 |
+| Ошибок | 0 (0.00%) |
+| Latency `/assistants` avg | 1.51 ms |
+| Latency `/assistants` p90 | 2.43 ms |
+| Latency `/assistants` p95 | 3.02 ms |
+| Latency `/assistants` p99 | 8.63 ms |
+| Latency `/assistants` max | 29.21 ms |
+| Доля успешных `check` | 100% |
+
+Все пороги пройдены с большим запасом. Узкое место в production-конфигурации не достигнуто — для значимой нагрузки на текущей схеме индексов (`category_id`, `pg_trgm` по `name`/`description`) потребуется существенно больший пул VU или более слабая машина.

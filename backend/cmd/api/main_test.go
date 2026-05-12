@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"avito-internship-fs/internal/config"
@@ -57,6 +58,38 @@ func TestHealthcheckReturns200JSON(t *testing.T) {
 	}
 	if body["time"] == "" {
 		t.Fatalf("expected time field")
+	}
+}
+
+func TestOpenAPISpecReturnsRootAPIYaml(t *testing.T) {
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/docs/openapi.yaml", nil)
+	openAPISpec(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/yaml; charset=utf-8" {
+		t.Fatalf("content-type: %q", ct)
+	}
+	if body := rr.Body.String(); body == "" || !strings.Contains(body, "openapi: 3.0.3") {
+		t.Fatalf("unexpected openapi body prefix: %.80q", body)
+	}
+}
+
+func TestSwaggerUIReferencesOpenAPISpec(t *testing.T) {
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	swaggerUI(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: %d", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Fatalf("content-type: %q", ct)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, "/docs/openapi.yaml") || !strings.Contains(body, "SwaggerUIBundle") {
+		t.Fatalf("swagger ui does not reference spec: %.120q", body)
 	}
 }
 

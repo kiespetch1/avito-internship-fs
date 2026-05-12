@@ -1,7 +1,11 @@
 package main
 
 import (
+	"errors"
+	"html/template"
+	"io/fs"
 	"net/http"
+	"os"
 	"time"
 
 	"avito-internship-fs/internal/assistants"
@@ -28,6 +32,9 @@ func newRouter(d routerDeps) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /_info", healthcheck)
+	mux.HandleFunc("GET /docs", swaggerUI)
+	mux.HandleFunc("GET /docs/", swaggerUI)
+	mux.HandleFunc("GET /docs/openapi.yaml", openAPISpec)
 	mux.HandleFunc("POST /dummyLogin", d.AuthHandler.DummyLogin)
 
 	mux.Handle("GET /categories", authed(http.HandlerFunc(d.CategoriesHandler.List)))
@@ -75,3 +82,76 @@ func healthcheck(w http.ResponseWriter, _ *http.Request) {
 		"time":   time.Now().UTC().Format(time.RFC3339),
 	})
 }
+
+var openAPISpecPaths = []string{
+	"api.yaml",
+	"../api.yaml",
+	"../../api.yaml",
+	"../../../api.yaml",
+	"/api.yaml",
+}
+
+func openAPISpec(w http.ResponseWriter, _ *http.Request) {
+	data, err := readOpenAPISpec()
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternalError, "openapi spec is unavailable")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+func readOpenAPISpec() ([]byte, error) {
+	var lastErr error
+	for _, path := range openAPISpecPaths {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return data, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			lastErr = err
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+
+	return nil, fs.ErrNotExist
+}
+
+func swaggerUI(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_ = swaggerUITemplate.Execute(w, nil)
+}
+
+var swaggerUITemplate = template.Must(template.New("swagger").Parse(`<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Assistants Catalog API</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <style>
+    body { margin: 0; background: #fff; }
+    .swagger-ui .topbar { display: none; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    window.onload = function() {
+      window.ui = SwaggerUIBundle({
+        url: "/docs/openapi.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        persistAuthorization: true,
+        displayRequestDuration: true
+      });
+    };
+  </script>
+</body>
+</html>`))
