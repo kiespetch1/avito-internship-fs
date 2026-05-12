@@ -11,7 +11,8 @@ const buttonVariants = cva(
         // Avito Blue — primary CTA («Найти»)
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         // Чёрная pill — активный фильтр («Все 15»), «Купить в рассрочку»
-        black: "bg-avito-black text-white hover:bg-avito-black/90",
+        black:
+          "bg-avito-black text-avito-black-foreground hover:bg-avito-black/90",
         // Фиолетовый CTA — «Купить с доставкой», «В корзину»
         purple:
           "bg-avito-purple text-avito-purple-foreground hover:bg-avito-purple/90",

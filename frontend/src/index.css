@@ -3,7 +3,7 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/manrope";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   color-scheme: light;
@@ -34,6 +34,8 @@
   --destructive-foreground: #ffffff;
 
   --avito-black: #0a0a0a;
+  --avito-black-foreground: #ffffff;
+  --toggle-off: #d1d3d5;
   --avito-purple: #965eeb;
   --avito-purple-foreground: #ffffff;
   --avito-success: #04c270;
@@ -63,6 +65,64 @@
   --sidebar-ring: #00aaff;
 }
 
+.dark {
+  color-scheme: dark;
+
+  --background: #0b0b0d;
+  --foreground: #ededee;
+  --card: #131316;
+  --card-foreground: #ededee;
+  --popover: #16161a;
+  --popover-foreground: #ededee;
+
+  --primary: #38b6ff;
+  --primary-foreground: #0a0a0a;
+
+  --secondary: #1c1c20;
+  --secondary-foreground: #ededee;
+
+  --field: #232328;
+  --field-foreground: #ededee;
+
+  --muted: #18181b;
+  --muted-foreground: #a1a1aa;
+
+  --accent: #232328;
+  --accent-foreground: #ededee;
+
+  --destructive: #ff5e6e;
+  --destructive-foreground: #0a0a0a;
+
+  --avito-black: #ededee;
+  --avito-black-foreground: #0a0a0a;
+  --toggle-off: #3a3a40;
+  --avito-purple: #a87aef;
+  --avito-purple-foreground: #0a0a0a;
+  --avito-success: #1fd286;
+  --avito-warning: #ffc05c;
+  --avito-info-bg: #0e2a40;
+  --avito-info-fg: #5cb6ff;
+
+  --border: #26262b;
+  --input: #26262b;
+  --ring: #38b6ff;
+
+  --chart-1: #38b6ff;
+  --chart-2: #a87aef;
+  --chart-3: #1fd286;
+  --chart-4: #ffc05c;
+  --chart-5: #ff5e6e;
+
+  --sidebar: #0e0e11;
+  --sidebar-foreground: #ededee;
+  --sidebar-primary: #38b6ff;
+  --sidebar-primary-foreground: #0a0a0a;
+  --sidebar-accent: #1c1c20;
+  --sidebar-accent-foreground: #ededee;
+  --sidebar-border: #26262b;
+  --sidebar-ring: #38b6ff;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -86,6 +146,8 @@
   --color-ring: var(--ring);
 
   --color-avito-black: var(--avito-black);
+  --color-avito-black-foreground: var(--avito-black-foreground);
+  --color-toggle-off: var(--toggle-off);
   --color-avito-purple: var(--avito-purple);
   --color-avito-purple-foreground: var(--avito-purple-foreground);
   --color-avito-success: var(--avito-success);
@@ -137,5 +199,41 @@ body {
   }
   html {
     @apply font-sans;
+  }
+
+  html,
+  body,
+  [data-slot="card"],
+  header,
+  main,
+  aside,
+  nav,
+  button,
+  input,
+  textarea,
+  select {
+    transition:
+      background-color 180ms ease,
+      border-color 180ms ease,
+      color 180ms ease;
+  }
+
+  .dark ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .dark ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: #2a2a2f;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: #3a3a40;
+    background-clip: padding-box;
+    border: 2px solid transparent;
   }
 }

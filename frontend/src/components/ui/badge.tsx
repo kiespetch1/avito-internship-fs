@@ -20,7 +20,7 @@ const badgeVariants = cva(
         default:
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
         // Чёрный — премиум-метки
-        black: "bg-avito-black text-white",
+        black: "bg-avito-black text-avito-black-foreground",
         // Зелёный (приглушённый) — успех
         success: "bg-avito-success/15 text-avito-success",
         // Красный (приглушённый) — алерты/предупреждения

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 
@@ -16,7 +17,7 @@ export function AppLayout({ children }: Props) {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border bg-card">
+      <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-md supports-[backdrop-filter]:bg-card/70">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-6 px-6">
           <Link to="/assistants" className="flex items-baseline gap-2">
             <span className="text-sm font-semibold text-primary">Авито</span>
@@ -31,10 +32,11 @@ export function AppLayout({ children }: Props) {
 
           <div className="flex items-center gap-3">
             {user && (
-              <span className="text-sm text-muted-foreground">
+              <span className="hidden text-sm text-muted-foreground sm:inline">
                 {user.email} · {user.role}
               </span>
             )}
+            <ThemeToggle />
             <Button variant="outline" size="sm" onClick={handleLogout}>
               Выйти
             </Button>

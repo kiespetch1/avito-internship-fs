@@ -20,7 +20,8 @@ const tagVariants = cva(
         destructive:
           "bg-destructive text-destructive-foreground focus-visible:ring-destructive/30 [a]:hover:bg-destructive/90",
         // Чёрная pill — активный таб («Все 15»)
-        black: "bg-avito-black text-white [a]:hover:bg-avito-black/90",
+        black:
+          "bg-avito-black text-avito-black-foreground [a]:hover:bg-avito-black/90",
         // Фиолетовая
         purple:
           "bg-avito-purple text-avito-purple-foreground [a]:hover:bg-avito-purple/90",

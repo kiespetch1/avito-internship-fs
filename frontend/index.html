@@ -3,7 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)" />
     <title>AI Assistants Catalog</title>
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var resolved =
+            stored === "dark" || stored === "light"
+              ? stored
+              : systemDark
+                ? "dark"
+                : "light";
+          var root = document.documentElement;
+          root.classList.toggle("dark", resolved === "dark");
+          root.style.colorScheme = resolved;
+        } catch (_) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
