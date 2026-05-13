@@ -186,6 +186,8 @@ export interface paths {
                     q?: string;
                     /** @description Фильтр "Показать неактивных ассистентов"; доступен администратору */
                     includeInactive?: boolean;
+                    /** @description Показывать только избранных ассистентов текущего пользователя */
+                    favoriteOnly?: boolean;
                     page?: number;
                     pageSize?: number;
                 };
@@ -356,6 +358,118 @@ export interface paths {
         };
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistants/{assistantId}/favorite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Добавить ассистента в избранное */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Идентификатор ассистента */
+                    assistantId: components["parameters"]["AssistantIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Ассистент добавлен в избранное */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Некорректный идентификатор */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Требуется аутентификация */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Ассистент не найден */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        /** Убрать ассистента из избранного */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Идентификатор ассистента */
+                    assistantId: components["parameters"]["AssistantIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Ассистент убран из избранного */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Некорректный идентификатор */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Требуется аутентификация */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Ассистент не найден */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -773,6 +887,8 @@ export interface components {
             /** @example курица, рис, томаты, сыр */
             exampleUserPrompt?: string | null;
             isActive: boolean;
+            /** @description Ассистент добавлен в избранное текущим пользователем */
+            isFavorite: boolean;
             /** Format: date-time */
             createdAt?: string | null;
             /** Format: date-time */

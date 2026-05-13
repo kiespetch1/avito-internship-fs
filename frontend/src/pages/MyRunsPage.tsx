@@ -52,7 +52,7 @@ export function MyRunsPage() {
   };
 
   const runsQuery = useQuery({
-    queryKey: qk.runs.my(listQuery),
+    queryKey: qk.runs.my(user?.id, listQuery),
     queryFn: ({ signal }) => runsApi.my(listQuery, signal),
     placeholderData: (prev) => prev,
   });

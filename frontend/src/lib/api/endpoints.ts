@@ -49,6 +49,7 @@ export type AssistantsQuery = {
   categoryId?: string;
   q?: string;
   includeInactive?: boolean;
+  favoriteOnly?: boolean;
   page?: number;
   pageSize?: number;
 };
@@ -62,6 +63,10 @@ export const assistants = {
     apiRequest<Assistant>("/assistants", { method: "POST", body: input }),
   update: (id: string, input: AssistantUpdateIn) =>
     apiRequest<Assistant>(`/assistants/${id}`, { method: "PUT", body: input }),
+  addFavorite: (id: string) =>
+    apiRequest<void>(`/assistants/${id}/favorite`, { method: "PUT" }),
+  removeFavorite: (id: string) =>
+    apiRequest<void>(`/assistants/${id}/favorite`, { method: "DELETE" }),
   run: (id: string, input: AssistantRunCreateIn) =>
     apiRequest<AssistantRun>(`/assistants/${id}/run`, { method: "POST", body: input }),
   runStream: async (

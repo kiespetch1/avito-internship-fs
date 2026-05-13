@@ -54,8 +54,11 @@ type Assistant struct {
 	ExampleUserPrompt *string            `json:"exampleUserPrompt"`
 	Id                openapi_types.UUID `json:"id"`
 	IsActive          bool               `json:"isActive"`
-	Model             string             `json:"model"`
-	Name              string             `json:"name"`
+
+	// IsFavorite Ассистент добавлен в избранное текущим пользователем
+	IsFavorite bool   `json:"isFavorite"`
+	Model      string `json:"model"`
+	Name       string `json:"name"`
 
 	// SystemPrompt Может быть скрыт от обычного пользователя по решению кандидата
 	SystemPrompt *string    `json:"systemPrompt"`
@@ -194,8 +197,11 @@ type GetAssistantsParams struct {
 
 	// IncludeInactive Фильтр "Показать неактивных ассистентов"; доступен администратору
 	IncludeInactive *bool `form:"includeInactive,omitempty" json:"includeInactive,omitempty"`
-	Page            *int  `form:"page,omitempty" json:"page,omitempty"`
-	PageSize        *int  `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+
+	// FavoriteOnly Показывать только избранных ассистентов текущего пользователя
+	FavoriteOnly *bool `form:"favoriteOnly,omitempty" json:"favoriteOnly,omitempty"`
+	Page         *int  `form:"page,omitempty" json:"page,omitempty"`
+	PageSize     *int  `form:"pageSize,omitempty" json:"pageSize,omitempty"`
 }
 
 // PostDummyLoginJSONBody defines parameters for PostDummyLogin.

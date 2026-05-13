@@ -18,14 +18,15 @@ import (
 )
 
 type fakeService struct {
-	getFn    func(ctx context.Context, id uuid.UUID) (domain.Assistant, error)
-	createFn func(ctx context.Context, in service.AssistantCreateInput) (domain.Assistant, error)
-	updateFn func(ctx context.Context, in service.AssistantUpdateInput) (domain.Assistant, error)
-	listFn   func(ctx context.Context, in service.AssistantListInput) ([]domain.Assistant, int, error)
+	getFn         func(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error)
+	createFn      func(ctx context.Context, in service.AssistantCreateInput) (domain.Assistant, error)
+	updateFn      func(ctx context.Context, in service.AssistantUpdateInput) (domain.Assistant, error)
+	listFn        func(ctx context.Context, in service.AssistantListInput) ([]domain.Assistant, int, error)
+	setFavoriteFn func(ctx context.Context, userID, assistantID uuid.UUID, favorite bool) error
 }
 
-func (f *fakeService) Get(ctx context.Context, id uuid.UUID) (domain.Assistant, error) {
-	return f.getFn(ctx, id)
+func (f *fakeService) Get(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error) {
+	return f.getFn(ctx, userID, id)
 }
 
 func (f *fakeService) Create(ctx context.Context, in service.AssistantCreateInput) (domain.Assistant, error) {
@@ -38,6 +39,10 @@ func (f *fakeService) Update(ctx context.Context, in service.AssistantUpdateInpu
 
 func (f *fakeService) List(ctx context.Context, in service.AssistantListInput) ([]domain.Assistant, int, error) {
 	return f.listFn(ctx, in)
+}
+
+func (f *fakeService) SetFavorite(ctx context.Context, userID, assistantID uuid.UUID, favorite bool) error {
+	return f.setFavoriteFn(ctx, userID, assistantID, favorite)
 }
 
 func withPrincipal(r *http.Request, role auth.Role) *http.Request {
@@ -57,8 +62,9 @@ func sampleAssistant() domain.Assistant {
 
 func TestGetReturnsAssistant(t *testing.T) {
 	a := sampleAssistant()
+	a.IsFavorite = true
 	h := NewHandler(&fakeService{
-		getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil },
+		getFn: func(_ context.Context, _, _ uuid.UUID) (domain.Assistant, error) { return a, nil },
 	})
 	req := httptest.NewRequest(http.MethodGet, "/assistants/"+a.ID.String(), nil)
 	req.SetPathValue("assistantId", a.ID.String())
@@ -78,12 +84,15 @@ func TestGetReturnsAssistant(t *testing.T) {
 	if got.SystemPrompt == nil || *got.SystemPrompt != "be a chef" {
 		t.Fatalf("admin must see systemPrompt, got %+v", got.SystemPrompt)
 	}
+	if !got.IsFavorite {
+		t.Fatalf("isFavorite must be returned")
+	}
 }
 
 func TestGetHidesSystemPromptFromRegularUser(t *testing.T) {
 	a := sampleAssistant()
 	h := NewHandler(&fakeService{
-		getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil },
+		getFn: func(_ context.Context, _, _ uuid.UUID) (domain.Assistant, error) { return a, nil },
 	})
 	req := httptest.NewRequest(http.MethodGet, "/assistants/"+a.ID.String(), nil)
 	req.SetPathValue("assistantId", a.ID.String())
@@ -114,7 +123,7 @@ func TestGetInvalidID(t *testing.T) {
 func TestGetNotFound(t *testing.T) {
 	id := uuid.New()
 	h := NewHandler(&fakeService{
-		getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) {
+		getFn: func(_ context.Context, _, _ uuid.UUID) (domain.Assistant, error) {
 			return domain.Assistant{}, domain.ErrAssistantNotFound
 		},
 	})
@@ -328,6 +337,7 @@ func TestUpdateMapsAssistantNotFoundTo404(t *testing.T) {
 
 func TestListSuccess(t *testing.T) {
 	a := sampleAssistant()
+	a.IsFavorite = true
 	var captured service.AssistantListInput
 	h := NewHandler(&fakeService{
 		listFn: func(_ context.Context, in service.AssistantListInput) ([]domain.Assistant, int, error) {
@@ -354,6 +364,9 @@ func TestListSuccess(t *testing.T) {
 	}
 	if got.Assistants[0].SystemPrompt != nil {
 		t.Fatalf("regular user must not see systemPrompt in list")
+	}
+	if !got.Assistants[0].IsFavorite {
+		t.Fatalf("isFavorite must be returned in list")
 	}
 }
 
@@ -440,6 +453,37 @@ func TestListAllowsIncludeInactiveForAdmin(t *testing.T) {
 	}
 }
 
+func TestListParsesFavoriteOnly(t *testing.T) {
+	var captured service.AssistantListInput
+	h := NewHandler(&fakeService{
+		listFn: func(_ context.Context, in service.AssistantListInput) ([]domain.Assistant, int, error) {
+			captured = in
+			return nil, 0, nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/assistants?favoriteOnly=true", nil)
+	rr := httptest.NewRecorder()
+	h.List(rr, withPrincipal(req, auth.RoleUser))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !captured.FavoriteOnly {
+		t.Fatalf("favoriteOnly=true must propagate")
+	}
+}
+
+func TestListRejectsInvalidFavoriteOnly(t *testing.T) {
+	h := NewHandler(&fakeService{})
+	req := httptest.NewRequest(http.MethodGet, "/assistants?favoriteOnly=nope", nil)
+	rr := httptest.NewRecorder()
+	h.List(rr, withPrincipal(req, auth.RoleUser))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: %d", rr.Code)
+	}
+}
+
 func TestListRejectsBadPagination(t *testing.T) {
 	h := NewHandler(&fakeService{})
 	req := httptest.NewRequest(http.MethodGet, "/assistants?page=abc", nil)
@@ -459,5 +503,86 @@ func TestListRequiresAuth(t *testing.T) {
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status: %d", rr.Code)
+	}
+}
+
+func TestAddFavoriteSuccess(t *testing.T) {
+	assistantID := uuid.New()
+	var capturedFavorite bool
+	h := NewHandler(&fakeService{
+		setFavoriteFn: func(_ context.Context, _ uuid.UUID, gotAssistantID uuid.UUID, favorite bool) error {
+			if gotAssistantID != assistantID {
+				t.Fatalf("assistant id: got %v want %v", gotAssistantID, assistantID)
+			}
+			capturedFavorite = favorite
+
+			return nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodPut, "/assistants/"+assistantID.String()+"/favorite", nil)
+	req.SetPathValue("assistantId", assistantID.String())
+	rr := httptest.NewRecorder()
+	h.AddFavorite(rr, withPrincipal(req, auth.RoleUser))
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !capturedFavorite {
+		t.Fatalf("favorite=true must propagate")
+	}
+}
+
+func TestRemoveFavoriteSuccess(t *testing.T) {
+	assistantID := uuid.New()
+	var capturedFavorite bool
+	h := NewHandler(&fakeService{
+		setFavoriteFn: func(_ context.Context, _ uuid.UUID, gotAssistantID uuid.UUID, favorite bool) error {
+			if gotAssistantID != assistantID {
+				t.Fatalf("assistant id: got %v want %v", gotAssistantID, assistantID)
+			}
+			capturedFavorite = favorite
+
+			return nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodDelete, "/assistants/"+assistantID.String()+"/favorite", nil)
+	req.SetPathValue("assistantId", assistantID.String())
+	rr := httptest.NewRecorder()
+	h.RemoveFavorite(rr, withPrincipal(req, auth.RoleUser))
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if capturedFavorite {
+		t.Fatalf("favorite=false must propagate")
+	}
+}
+
+func TestSetFavoriteInvalidID(t *testing.T) {
+	h := NewHandler(&fakeService{})
+	req := httptest.NewRequest(http.MethodPut, "/assistants/not-a-uuid/favorite", nil)
+	req.SetPathValue("assistantId", "not-a-uuid")
+	rr := httptest.NewRecorder()
+	h.AddFavorite(rr, withPrincipal(req, auth.RoleUser))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: %d", rr.Code)
+	}
+}
+
+func TestSetFavoriteMapsAssistantNotFound(t *testing.T) {
+	assistantID := uuid.New()
+	h := NewHandler(&fakeService{
+		setFavoriteFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID, _ bool) error {
+			return domain.ErrAssistantNotFound
+		},
+	})
+	req := httptest.NewRequest(http.MethodPut, "/assistants/"+assistantID.String()+"/favorite", nil)
+	req.SetPathValue("assistantId", assistantID.String())
+	rr := httptest.NewRecorder()
+	h.AddFavorite(rr, withPrincipal(req, auth.RoleUser))
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
 	}
 }

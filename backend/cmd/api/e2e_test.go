@@ -172,6 +172,79 @@ func TestE2E_AssistantListFilteredByCategoryId(t *testing.T) {
 	}
 }
 
+// TestE2E_UserFavoriteAssistants verifies the favorite_assistants relation through
+// the public HTTP API: mark, read favorite flags, filter by favorites and unmark.
+func TestE2E_UserFavoriteAssistants(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	server := newTestServer(ctx, t, nil)
+	t.Cleanup(server.Close)
+
+	adminToken := dummyLogin(t, server, auth.RoleAdmin)
+	userToken := dummyLogin(t, server, auth.RoleUser)
+
+	category := createCategory(t, server, adminToken, "Еда", "")
+	cook := createAssistant(t, server, adminToken, api.AssistantCreateIn{
+		CategoryId: openapi_types.UUID(category.Id), Name: "Повар",
+		Description: "Рецепты", Model: "gpt-4o-mini", SystemPrompt: "Ты повар",
+	})
+	baker := createAssistant(t, server, adminToken, api.AssistantCreateIn{
+		CategoryId: openapi_types.UUID(category.Id), Name: "Пекарь",
+		Description: "Выпечка", Model: "gpt-4o-mini", SystemPrompt: "Ты пекарь",
+	})
+
+	resp := listAssistants(t, server, userToken, "")
+	for _, a := range resp.Assistants {
+		if a.IsFavorite {
+			t.Fatalf("new assistants must not be favorite by default: %+v", a)
+		}
+	}
+
+	setFavorite(t, server, userToken, cook.Id, true)
+
+	status, raw := doJSON(t, server, http.MethodGet, "/assistants/"+cook.Id.String(), userToken, nil)
+	if status != http.StatusOK {
+		t.Fatalf("get favorite assistant: status=%d body=%s", status, raw)
+	}
+	var detail api.Assistant
+	if err := json.Unmarshal(raw, &detail); err != nil {
+		t.Fatalf("decode assistant: %v", err)
+	}
+	if !detail.IsFavorite {
+		t.Fatalf("expected detail isFavorite=true")
+	}
+	if detail.SystemPrompt != nil {
+		t.Fatalf("regular user must not see systemPrompt: %+v", detail.SystemPrompt)
+	}
+
+	resp = listAssistants(t, server, userToken, "?favoriteOnly=true")
+	if resp.Pagination.Total != 1 || len(resp.Assistants) != 1 || resp.Assistants[0].Id != cook.Id {
+		t.Fatalf("favorite filter: expected only cook, got %+v", resp)
+	}
+	if !resp.Assistants[0].IsFavorite {
+		t.Fatalf("favorite filter item must have isFavorite=true")
+	}
+
+	resp = listAssistants(t, server, userToken, "")
+	favoritesByID := map[uuid.UUID]bool{}
+	for _, a := range resp.Assistants {
+		favoritesByID[a.Id] = a.IsFavorite
+	}
+	if !favoritesByID[cook.Id] {
+		t.Fatalf("cook should remain favorite in full list")
+	}
+	if favoritesByID[baker.Id] {
+		t.Fatalf("baker should not be favorite")
+	}
+
+	setFavorite(t, server, userToken, cook.Id, false)
+	resp = listAssistants(t, server, userToken, "?favoriteOnly=true")
+	if resp.Pagination.Total != 0 || len(resp.Assistants) != 0 {
+		t.Fatalf("favorite filter after removal: expected empty, got %+v", resp)
+	}
+}
+
 // TestE2E_CategoriesListReturnsCreatedItems covers GET /categories after
 // admin creates several categories — exercises the categories.List repository path.
 func TestE2E_CategoriesListReturnsCreatedItems(t *testing.T) {
@@ -472,6 +545,18 @@ func runAssistant(t *testing.T, s *testServer, token string, assistantID uuid.UU
 		t.Fatalf("decode run: %v", err)
 	}
 	return r
+}
+
+func setFavorite(t *testing.T, s *testServer, token string, assistantID uuid.UUID, favorite bool) {
+	t.Helper()
+	method := http.MethodPut
+	if !favorite {
+		method = http.MethodDelete
+	}
+	status, raw := doJSON(t, s, method, "/assistants/"+assistantID.String()+"/favorite", token, nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("set favorite=%v: status=%d body=%s", favorite, status, raw)
+	}
 }
 
 type assistantListResp struct {

@@ -11,9 +11,11 @@ import (
 
 type AssistantWriteRepo interface {
 	AssistantRepo
+	GetForUser(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error)
 	Create(ctx context.Context, in domain.Assistant) (domain.Assistant, error)
 	Update(ctx context.Context, in domain.Assistant) (domain.Assistant, error)
 	List(ctx context.Context, f repository.AssistantListFilter) ([]domain.Assistant, int, error)
+	SetFavorite(ctx context.Context, userID, assistantID uuid.UUID, favorite bool) error
 }
 
 type AssistantService struct {
@@ -46,15 +48,17 @@ type AssistantUpdateInput struct {
 }
 
 type AssistantListInput struct {
+	UserID          uuid.UUID
 	CategoryID      *uuid.UUID
 	Query           *string
 	IncludeInactive bool
+	FavoriteOnly    bool
 	Page            int
 	PageSize        int
 }
 
-func (s *AssistantService) Get(ctx context.Context, id uuid.UUID) (domain.Assistant, error) {
-	return s.repo.Get(ctx, id)
+func (s *AssistantService) Get(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error) {
+	return s.repo.GetForUser(ctx, userID, id)
 }
 
 func (s *AssistantService) Create(ctx context.Context, in AssistantCreateInput) (domain.Assistant, error) {
@@ -86,10 +90,16 @@ func (s *AssistantService) List(ctx context.Context, in AssistantListInput) ([]d
 	page, pageSize := normalizePage(in.Page, in.PageSize, defaultAssistantsPageSize, maxPageSize)
 
 	return s.repo.List(ctx, repository.AssistantListFilter{
+		UserID:          &in.UserID,
 		CategoryID:      in.CategoryID,
 		Query:           in.Query,
 		IncludeInactive: in.IncludeInactive,
+		FavoriteOnly:    in.FavoriteOnly,
 		Limit:           pageSize,
 		Offset:          (page - 1) * pageSize,
 	})
+}
+
+func (s *AssistantService) SetFavorite(ctx context.Context, userID, assistantID uuid.UUID, favorite bool) error {
+	return s.repo.SetFavorite(ctx, userID, assistantID, favorite)
 }

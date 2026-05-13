@@ -12,14 +12,20 @@ import (
 )
 
 type fakeAssistantWriteRepo struct {
-	getFn    func(ctx context.Context, id uuid.UUID) (domain.Assistant, error)
-	createFn func(ctx context.Context, a domain.Assistant) (domain.Assistant, error)
-	updateFn func(ctx context.Context, a domain.Assistant) (domain.Assistant, error)
-	listFn   func(ctx context.Context, f repository.AssistantListFilter) ([]domain.Assistant, int, error)
+	getFn         func(ctx context.Context, id uuid.UUID) (domain.Assistant, error)
+	getForUserFn  func(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error)
+	createFn      func(ctx context.Context, a domain.Assistant) (domain.Assistant, error)
+	updateFn      func(ctx context.Context, a domain.Assistant) (domain.Assistant, error)
+	listFn        func(ctx context.Context, f repository.AssistantListFilter) ([]domain.Assistant, int, error)
+	setFavoriteFn func(ctx context.Context, userID, assistantID uuid.UUID, favorite bool) error
 }
 
 func (f *fakeAssistantWriteRepo) Get(ctx context.Context, id uuid.UUID) (domain.Assistant, error) {
 	return f.getFn(ctx, id)
+}
+
+func (f *fakeAssistantWriteRepo) GetForUser(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error) {
+	return f.getForUserFn(ctx, userID, id)
 }
 
 func (f *fakeAssistantWriteRepo) Create(ctx context.Context, a domain.Assistant) (domain.Assistant, error) {
@@ -34,27 +40,39 @@ func (f *fakeAssistantWriteRepo) List(ctx context.Context, fl repository.Assista
 	return f.listFn(ctx, fl)
 }
 
+func (f *fakeAssistantWriteRepo) SetFavorite(ctx context.Context, userID, assistantID uuid.UUID, favorite bool) error {
+	return f.setFavoriteFn(ctx, userID, assistantID, favorite)
+}
+
 func TestAssistantServiceGetPassthrough(t *testing.T) {
 	want := domain.Assistant{ID: uuid.New(), Name: "x"}
+	userID := uuid.New()
+	var capturedUserID uuid.UUID
 	repo := &fakeAssistantWriteRepo{
-		getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return want, nil },
+		getForUserFn: func(_ context.Context, gotUserID, _ uuid.UUID) (domain.Assistant, error) {
+			capturedUserID = gotUserID
+			return want, nil
+		},
 	}
-	got, err := NewAssistantService(repo).Get(context.Background(), want.ID)
+	got, err := NewAssistantService(repo).Get(context.Background(), userID, want.ID)
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
 	if got.ID != want.ID {
 		t.Fatalf("got %v want %v", got.ID, want.ID)
 	}
+	if capturedUserID != userID {
+		t.Fatalf("user id not propagated: got %v want %v", capturedUserID, userID)
+	}
 }
 
 func TestAssistantServiceGetPropagatesNotFound(t *testing.T) {
 	repo := &fakeAssistantWriteRepo{
-		getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) {
+		getForUserFn: func(_ context.Context, _, _ uuid.UUID) (domain.Assistant, error) {
 			return domain.Assistant{}, domain.ErrAssistantNotFound
 		},
 	}
-	_, err := NewAssistantService(repo).Get(context.Background(), uuid.New())
+	_, err := NewAssistantService(repo).Get(context.Background(), uuid.New(), uuid.New())
 	if !errors.Is(err, domain.ErrAssistantNotFound) {
 		t.Fatalf("err: %v", err)
 	}
@@ -167,6 +185,7 @@ func TestAssistantServiceListClampsPageSize(t *testing.T) {
 }
 
 func TestAssistantServiceListPassesFilters(t *testing.T) {
+	userID := uuid.New()
 	categoryID := uuid.New()
 	q := "повар"
 	var captured repository.AssistantListFilter
@@ -177,12 +196,17 @@ func TestAssistantServiceListPassesFilters(t *testing.T) {
 		},
 	}
 	_, _, _ = NewAssistantService(repo).List(context.Background(), AssistantListInput{
+		UserID:          userID,
 		CategoryID:      &categoryID,
 		Query:           &q,
 		IncludeInactive: true,
+		FavoriteOnly:    true,
 		Page:            1,
 		PageSize:        10,
 	})
+	if captured.UserID == nil || *captured.UserID != userID {
+		t.Fatalf("user not propagated: %+v", captured.UserID)
+	}
 	if captured.CategoryID == nil || *captured.CategoryID != categoryID {
 		t.Fatalf("category not propagated: %+v", captured.CategoryID)
 	}
@@ -191,5 +215,34 @@ func TestAssistantServiceListPassesFilters(t *testing.T) {
 	}
 	if !captured.IncludeInactive {
 		t.Fatalf("IncludeInactive not propagated")
+	}
+	if !captured.FavoriteOnly {
+		t.Fatalf("FavoriteOnly not propagated")
+	}
+}
+
+func TestAssistantServiceSetFavoritePassthrough(t *testing.T) {
+	userID := uuid.New()
+	assistantID := uuid.New()
+	var capturedFavorite bool
+	repo := &fakeAssistantWriteRepo{
+		setFavoriteFn: func(_ context.Context, gotUserID, gotAssistantID uuid.UUID, favorite bool) error {
+			if gotUserID != userID {
+				t.Fatalf("user id: got %v want %v", gotUserID, userID)
+			}
+			if gotAssistantID != assistantID {
+				t.Fatalf("assistant id: got %v want %v", gotAssistantID, assistantID)
+			}
+			capturedFavorite = favorite
+
+			return nil
+		},
+	}
+
+	if err := NewAssistantService(repo).SetFavorite(context.Background(), userID, assistantID, true); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if !capturedFavorite {
+		t.Fatalf("favorite flag not propagated")
 	}
 }

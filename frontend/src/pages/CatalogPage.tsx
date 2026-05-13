@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Star } from "lucide-react";
+import { AssistantFavoriteButton } from "@/components/AssistantFavoriteButton";
 import { PaginationControl } from "@/components/PaginationControl";
 import { QueryStateBoundary } from "@/components/QueryStateBoundary";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ const filtersSchema = {
   q: stringParam(""),
   categoryId: stringParam(""),
   includeInactive: boolParam(false),
+  favoriteOnly: boolParam(false),
   page: intParam(1),
 };
 
@@ -68,12 +70,13 @@ export function CatalogPage() {
     q: filters.q || undefined,
     categoryId: filters.categoryId || undefined,
     includeInactive: isAdmin && filters.includeInactive ? true : undefined,
+    favoriteOnly: filters.favoriteOnly ? true : undefined,
     page: filters.page,
     pageSize: CATALOG_PAGE_SIZE,
   };
 
   const assistantsQuery = useQuery({
-    queryKey: qk.assistants.list(listQuery),
+    queryKey: qk.assistants.list(user?.id, listQuery),
     queryFn: ({ signal }) => assistantsApi.list(listQuery, signal),
     placeholderData: (prev) => prev,
   });
@@ -83,9 +86,7 @@ export function CatalogPage() {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm font-semibold text-primary">AI-каталог</p>
-          <h1 className="mt-1 text-4xl font-extrabold tracking-tight">
-            Ассистенты
-          </h1>
+          <h1 className="mt-1 text-4xl font-extrabold tracking-tight">Ассистенты</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Найдите подходящего AI-ассистента и запустите его с вашим контекстом.
           </p>
@@ -159,6 +160,18 @@ export function CatalogPage() {
             <Label htmlFor="include-inactive">Показать неактивных</Label>
           </div>
         )}
+
+        <div className="flex items-center gap-2">
+          <Switch
+            id="favorite-only"
+            checked={filters.favoriteOnly}
+            onCheckedChange={(v) => setFilters({ favoriteOnly: v, page: 1 })}
+          />
+          <Label htmlFor="favorite-only" className="inline-flex items-center gap-1.5">
+            <Star className="size-4" />
+            Только избранные
+          </Label>
+        </div>
       </div>
 
       <QueryStateBoundary
@@ -184,7 +197,9 @@ export function CatalogPage() {
         isEmpty={(data) => data.assistants.length === 0}
         emptyFallback={
           <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
-            По вашему запросу ничего не найдено.
+            {filters.favoriteOnly
+              ? "В избранном пока нет ассистентов."
+              : "По вашему запросу ничего не найдено."}
           </div>
         }
       >
@@ -198,10 +213,16 @@ export function CatalogPage() {
                   className="block transition-transform hover:-translate-y-0.5"
                 >
                   <Card
-                    className={`h-full overflow-hidden rounded-2xl border bg-secondary p-0 shadow-none ${
+                    className={`relative h-full overflow-hidden rounded-2xl border bg-secondary p-0 shadow-none ${
                       a.isActive ? "" : "opacity-60"
                     }`}
                   >
+                    <AssistantFavoriteButton
+                      assistantId={a.id}
+                      isFavorite={a.isFavorite}
+                      compact
+                      className="absolute top-3 right-3 z-10 bg-card/90 backdrop-blur hover:bg-card"
+                    />
                     <div className="aspect-[4/3] bg-gradient-to-br from-primary/20 to-avito-purple/20" />
                     <div className="space-y-2 p-4">
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -212,9 +233,7 @@ export function CatalogPage() {
                           <Tag variant="secondary">Неактивен</Tag>
                         )}
                       </div>
-                      <CardTitle className="text-base font-bold">
-                        {a.name}
-                      </CardTitle>
+                      <CardTitle className="text-base font-bold">{a.name}</CardTitle>
                       <p className="line-clamp-2 text-xs text-muted-foreground">
                         {a.description}
                       </p>

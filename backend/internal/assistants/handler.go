@@ -25,10 +25,11 @@ const (
 )
 
 type Service interface {
-	Get(ctx context.Context, id uuid.UUID) (domain.Assistant, error)
+	Get(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error)
 	Create(ctx context.Context, in service.AssistantCreateInput) (domain.Assistant, error)
 	Update(ctx context.Context, in service.AssistantUpdateInput) (domain.Assistant, error)
 	List(ctx context.Context, in service.AssistantListInput) ([]domain.Assistant, int, error)
+	SetFavorite(ctx context.Context, userID, assistantID uuid.UUID, favorite bool) error
 }
 
 type Handler struct {
@@ -52,7 +53,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	in := service.AssistantListInput{}
+	in := service.AssistantListInput{UserID: principal.UserID}
 
 	if raw := q.Get("categoryId"); raw != "" {
 		id, err := uuid.Parse(raw)
@@ -76,6 +77,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		in.IncludeInactive = v
+	}
+	if raw := q.Get("favoriteOnly"); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "invalid favoriteOnly")
+			return
+		}
+		in.FavoriteOnly = v
 	}
 	page, pageSize, err := httpx.PageParams(q, 10)
 	if err != nil {
@@ -115,13 +124,42 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a, err := h.svc.Get(r.Context(), id)
+	a, err := h.svc.Get(r.Context(), principal.UserID, id)
 	if err != nil {
 		writeAssistantError(w, err)
 		return
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, toAPIAssistant(a, principal.Role != auth.RoleAdmin))
+}
+
+func (h *Handler) AddFavorite(w http.ResponseWriter, r *http.Request) {
+	h.setFavorite(w, r, true)
+}
+
+func (h *Handler) RemoveFavorite(w http.ResponseWriter, r *http.Request) {
+	h.setFavorite(w, r, false)
+}
+
+func (h *Handler) setFavorite(w http.ResponseWriter, r *http.Request, favorite bool) {
+	principal, ok := auth.PrincipalFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.CodeUnauthorized, "not authenticated")
+		return
+	}
+
+	id, err := uuid.Parse(r.PathValue("assistantId"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "invalid assistantId")
+		return
+	}
+
+	if err := h.svc.SetFavorite(r.Context(), principal.UserID, id, favorite); err != nil {
+		writeAssistantError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -264,6 +302,7 @@ func toAPIAssistant(a domain.Assistant, hideSystemPrompt bool) api.Assistant {
 		Model:             a.Model,
 		ExampleUserPrompt: a.ExampleUserPrompt,
 		IsActive:          a.IsActive,
+		IsFavorite:        a.IsFavorite,
 		CreatedAt:         new(a.CreatedAt.UTC()),
 		UpdatedAt:         new(a.UpdatedAt.UTC()),
 	}

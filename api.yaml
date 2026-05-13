@@ -151,7 +151,7 @@ components:
 
     Assistant:
       type: object
-      required: [id, categoryId, name, description, model, isActive]
+      required: [id, categoryId, name, description, model, isActive, isFavorite]
       properties:
         id:
           type: string
@@ -181,6 +181,9 @@ components:
           example: курица, рис, томаты, сыр
         isActive:
           type: boolean
+        isFavorite:
+          type: boolean
+          description: Ассистент добавлен в избранное текущим пользователем
         createdAt:
           type: string
           format: date-time
@@ -442,6 +445,12 @@ paths:
             type: boolean
             default: false
           description: Фильтр "Показать неактивных ассистентов"; доступен администратору
+        - name: favoriteOnly
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Показывать только избранных ассистентов текущего пользователя
         - name: page
           in: query
           schema:
@@ -550,6 +559,64 @@ paths:
                 $ref: "#/components/schemas/Assistant"
         "403":
           description: Недостаточно прав
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ассистент не найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /assistants/{assistantId}/favorite:
+    put:
+      tags: [Assistants]
+      summary: Добавить ассистента в избранное
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AssistantIdPath"
+      responses:
+        "204":
+          description: Ассистент добавлен в избранное
+        "400":
+          description: Некорректный идентификатор
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Требуется аутентификация
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ассистент не найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Assistants]
+      summary: Убрать ассистента из избранного
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AssistantIdPath"
+      responses:
+        "204":
+          description: Ассистент убран из избранного
+        "400":
+          description: Некорректный идентификатор
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Требуется аутентификация
           content:
             application/json:
               schema:

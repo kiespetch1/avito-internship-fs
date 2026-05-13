@@ -8,7 +8,6 @@ export function useUpdateAssistant(id: string) {
     mutationFn: (input: AssistantUpdateIn) => assistants.update(id, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.assistants.root() });
-      qc.invalidateQueries({ queryKey: qk.assistants.byId(id) });
     },
   });
 }
