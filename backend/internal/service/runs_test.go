@@ -114,6 +114,10 @@ func (r *fakeRunRepo) GetByID(_ context.Context, id uuid.UUID) (domain.Assistant
 	return run, nil
 }
 
+func (r *fakeRunRepo) ReapPending(_ context.Context, _ time.Duration, _ string) (int64, error) {
+	return 0, nil
+}
+
 func (r *fakeRunRepo) UpsertFeedback(_ context.Context, runID uuid.UUID, rating domain.RunFeedbackRating) (domain.AssistantRun, error) {
 	r.feedbackCall = &feedbackArgs{runID: runID, rating: rating}
 	run, ok := r.store[runID]
@@ -159,6 +163,7 @@ func TestRunHappyPath(t *testing.T) {
 	a := activeAssistant()
 	runs := newFakeRunRepo()
 	svc := NewRunService(
+		context.Background(),
 		runs,
 		&fakeProvider{resp: llm.Response{Output: "hi", TokensIn: 1, TokensOut: 2, LatencyMs: 0, FinishReason: "stop"}},
 		time.Second,
@@ -183,6 +188,7 @@ func TestRunPersistsRowEvenOnProviderError(t *testing.T) {
 	a := activeAssistant()
 	runs := newFakeRunRepo()
 	svc := NewRunService(
+		context.Background(),
 		runs,
 		&fakeProvider{err: errors.New("boom")},
 		time.Second,
@@ -209,6 +215,7 @@ func TestRunInactiveDoesNotCreateRow(t *testing.T) {
 	runs := newFakeRunRepo()
 	runs.pendingAssistant = &a
 	svc := NewRunService(
+		context.Background(),
 		runs,
 		&fakeProvider{},
 		time.Second,
@@ -227,6 +234,7 @@ func TestRunNotFound(t *testing.T) {
 	runs := newFakeRunRepo()
 	runs.createPendingErr = domain.ErrAssistantNotFound
 	svc := NewRunService(
+		context.Background(),
 		runs,
 		&fakeProvider{},
 		time.Second,
@@ -243,6 +251,7 @@ func TestRunStreamHappyPath(t *testing.T) {
 	chunks := make([]string, 0, 2)
 	var created *domain.AssistantRun
 	svc := NewRunService(
+		context.Background(),
 		runs,
 		&fakeProvider{
 			resp:         llm.Response{Output: "hello world", TokensIn: 3, TokensOut: 4, LatencyMs: 0, FinishReason: "stop"},
@@ -277,6 +286,7 @@ func TestRunStreamPersistsFailure(t *testing.T) {
 	a := activeAssistant()
 	runs := newFakeRunRepo()
 	svc := NewRunService(
+		context.Background(),
 		runs,
 		&fakeProvider{err: errors.New("boom"), streamChunks: []string{"partial"}},
 		time.Second,
@@ -301,40 +311,49 @@ func TestRunStreamPersistsFailure(t *testing.T) {
 	}
 }
 
-func TestRunStreamUsesCallerContext(t *testing.T) {
+func TestRunStreamDecouplesProviderFromCallerContext(t *testing.T) {
 	a := activeAssistant()
 	runs := newFakeRunRepo()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	errNotCanceled := errors.New("stream context was not canceled")
 	svc := NewRunService(
+		context.Background(),
 		runs,
 		&fakeProvider{
-			streamFn: func(ctx context.Context, _ llm.Request, _ func(llm.StreamChunk)) (llm.Response, error) {
+			streamFn: func(ctx context.Context, _ llm.Request, onChunk func(llm.StreamChunk)) (llm.Response, error) {
+				onChunk(llm.StreamChunk{Delta: "first"})
 				select {
 				case <-ctx.Done():
 					return llm.Response{}, ctx.Err()
-				case <-time.After(100 * time.Millisecond):
-					return llm.Response{}, errNotCanceled
+				case <-time.After(50 * time.Millisecond):
 				}
+				onChunk(llm.StreamChunk{Delta: "second"})
+
+				return llm.Response{Output: "first second", FinishReason: "stop"}, nil
 			},
 		},
 		time.Second,
 	)
 
+	var deltas []string
 	_, err := svc.RunStream(ctx, a.ID, uuid.New(), "hello", RunStreamCallbacks{
 		OnRunCreated: func(domain.AssistantRun) {
 			cancel()
 		},
+		OnDelta: func(d string) {
+			deltas = append(deltas, d)
+		},
 	})
-	if errors.Is(err, errNotCanceled) {
-		t.Fatal("RunStream did not pass caller cancellation to provider")
+	if err != nil {
+		t.Fatalf("RunStream returned error after caller cancel: %v", err)
 	}
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected context cancellation, got %v", err)
+	if runs.successCall == nil {
+		t.Fatal("MarkSuccess not called — провайдер должен был дойти до конца после обрыва клиента")
 	}
-	if runs.failedCall == nil {
-		t.Fatal("MarkFailed not called")
+	for _, d := range deltas {
+		if d == "second" {
+			t.Fatal("delta after caller cancel должна быть отброшена")
+		}
 	}
 }
 
@@ -345,7 +364,7 @@ func TestSetFeedbackAllowsRunOwner(t *testing.T) {
 		ID: uuid.New(), UserID: userID, Status: domain.RunSuccess, CreatedAt: time.Now(),
 	}
 	runs.store[run.ID] = run
-	svc := NewRunService(runs, &fakeProvider{}, time.Second)
+	svc := NewRunService(context.Background(), runs, &fakeProvider{}, time.Second)
 
 	updated, err := svc.SetFeedback(context.Background(), run.ID, userID, domain.RunFeedbackLike)
 	if err != nil {
@@ -365,7 +384,7 @@ func TestSetFeedbackRejectsOtherUser(t *testing.T) {
 		ID: uuid.New(), UserID: uuid.New(), Status: domain.RunSuccess, CreatedAt: time.Now(),
 	}
 	runs.store[run.ID] = run
-	svc := NewRunService(runs, &fakeProvider{}, time.Second)
+	svc := NewRunService(context.Background(), runs, &fakeProvider{}, time.Second)
 
 	_, err := svc.SetFeedback(context.Background(), run.ID, uuid.New(), domain.RunFeedbackDislike)
 	if !errors.Is(err, domain.ErrRunForbidden) {

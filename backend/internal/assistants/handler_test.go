@@ -18,15 +18,15 @@ import (
 )
 
 type fakeService struct {
-	getFn         func(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error)
+	getFn         func(ctx context.Context, userID, id uuid.UUID, includeInactive bool) (domain.Assistant, error)
 	createFn      func(ctx context.Context, in service.AssistantCreateInput) (domain.Assistant, error)
 	updateFn      func(ctx context.Context, in service.AssistantUpdateInput) (domain.Assistant, error)
 	listFn        func(ctx context.Context, in service.AssistantListInput) ([]domain.Assistant, int, error)
 	setFavoriteFn func(ctx context.Context, userID, assistantID uuid.UUID, favorite bool) error
 }
 
-func (f *fakeService) Get(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error) {
-	return f.getFn(ctx, userID, id)
+func (f *fakeService) Get(ctx context.Context, userID, id uuid.UUID, includeInactive bool) (domain.Assistant, error) {
+	return f.getFn(ctx, userID, id, includeInactive)
 }
 
 func (f *fakeService) Create(ctx context.Context, in service.AssistantCreateInput) (domain.Assistant, error) {
@@ -65,7 +65,7 @@ func TestGetReturnsAssistant(t *testing.T) {
 	a := sampleAssistant()
 	a.IsFavorite = true
 	h := NewHandler(&fakeService{
-		getFn: func(_ context.Context, _, _ uuid.UUID) (domain.Assistant, error) { return a, nil },
+		getFn: func(_ context.Context, _, _ uuid.UUID, _ bool) (domain.Assistant, error) { return a, nil },
 	})
 	req := httptest.NewRequest(http.MethodGet, "/assistants/"+a.ID.String(), nil)
 	req.SetPathValue("assistantId", a.ID.String())
@@ -96,7 +96,7 @@ func TestGetReturnsAssistant(t *testing.T) {
 func TestGetHidesSystemPromptFromRegularUser(t *testing.T) {
 	a := sampleAssistant()
 	h := NewHandler(&fakeService{
-		getFn: func(_ context.Context, _, _ uuid.UUID) (domain.Assistant, error) { return a, nil },
+		getFn: func(_ context.Context, _, _ uuid.UUID, _ bool) (domain.Assistant, error) { return a, nil },
 	})
 	req := httptest.NewRequest(http.MethodGet, "/assistants/"+a.ID.String(), nil)
 	req.SetPathValue("assistantId", a.ID.String())
@@ -127,7 +127,7 @@ func TestGetInvalidID(t *testing.T) {
 func TestGetNotFound(t *testing.T) {
 	id := uuid.New()
 	h := NewHandler(&fakeService{
-		getFn: func(_ context.Context, _, _ uuid.UUID) (domain.Assistant, error) {
+		getFn: func(_ context.Context, _, _ uuid.UUID, _ bool) (domain.Assistant, error) {
 			return domain.Assistant{}, domain.ErrAssistantNotFound
 		},
 	})

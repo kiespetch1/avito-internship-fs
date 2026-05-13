@@ -54,7 +54,7 @@ func TestAssistantServiceGetPassthrough(t *testing.T) {
 			return want, nil
 		},
 	}
-	got, err := NewAssistantService(repo).Get(context.Background(), userID, want.ID)
+	got, err := NewAssistantService(repo).Get(context.Background(), userID, want.ID, true)
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
@@ -66,13 +66,34 @@ func TestAssistantServiceGetPassthrough(t *testing.T) {
 	}
 }
 
+func TestAssistantServiceGetHidesInactiveFromUser(t *testing.T) {
+	inactive := domain.Assistant{ID: uuid.New(), IsActive: false}
+	repo := &fakeAssistantWriteRepo{
+		getForUserFn: func(_ context.Context, _, _ uuid.UUID) (domain.Assistant, error) {
+			return inactive, nil
+		},
+	}
+	_, err := NewAssistantService(repo).Get(context.Background(), uuid.New(), inactive.ID, false)
+	if !errors.Is(err, domain.ErrAssistantNotFound) {
+		t.Fatalf("expected ErrAssistantNotFound, got %v", err)
+	}
+
+	got, err := NewAssistantService(repo).Get(context.Background(), uuid.New(), inactive.ID, true)
+	if err != nil {
+		t.Fatalf("admin must see inactive: %v", err)
+	}
+	if got.IsActive {
+		t.Fatalf("expected inactive assistant")
+	}
+}
+
 func TestAssistantServiceGetPropagatesNotFound(t *testing.T) {
 	repo := &fakeAssistantWriteRepo{
 		getForUserFn: func(_ context.Context, _, _ uuid.UUID) (domain.Assistant, error) {
 			return domain.Assistant{}, domain.ErrAssistantNotFound
 		},
 	}
-	_, err := NewAssistantService(repo).Get(context.Background(), uuid.New(), uuid.New())
+	_, err := NewAssistantService(repo).Get(context.Background(), uuid.New(), uuid.New(), true)
 	if !errors.Is(err, domain.ErrAssistantNotFound) {
 		t.Fatalf("err: %v", err)
 	}

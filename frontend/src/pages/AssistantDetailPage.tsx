@@ -36,12 +36,22 @@ export function AssistantDetailPage() {
   const [streaming, setStreaming] = useState(true);
   const [lastRun, setLastRun] = useState<AssistantRun | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
+  const activeRunRef = useRef<{ controller: AbortController; token: number } | null>(null);
+
+  const visibleRun = lastRun?.assistantId === id ? lastRun : null;
 
   useEffect(() => {
-    if (lastRun) {
+    if (visibleRun) {
       resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [lastRun?.id]);
+  }, [visibleRun?.id]);
+
+  useEffect(() => {
+    return () => {
+      activeRunRef.current?.controller.abort();
+      activeRunRef.current = null;
+    };
+  }, []);
 
   const assistantQuery = useQuery({
     queryKey: qk.assistants.byId(user?.id, id),
@@ -49,11 +59,17 @@ export function AssistantDetailPage() {
     enabled: id !== "",
   });
 
+  const isCurrentRun = (token: number) => activeRunRef.current?.token === token;
+
   const runMutation = useRunAssistant(id, {
     onRun: (run) => {
+      const token = activeRunRef.current?.token ?? 0;
+      if (!isCurrentRun(token)) return;
       setLastRun({ ...run, output: "" });
     },
     onDelta: (delta) => {
+      const token = activeRunRef.current?.token ?? 0;
+      if (!isCurrentRun(token)) return;
       setLastRun((current) => {
         if (!current) return current;
 
@@ -65,9 +81,13 @@ export function AssistantDetailPage() {
       });
     },
     onDone: (run) => {
+      const token = activeRunRef.current?.token ?? 0;
+      if (!isCurrentRun(token)) return;
       setLastRun(run);
     },
     onFailed: (failure) => {
+      const token = activeRunRef.current?.token ?? 0;
+      if (!isCurrentRun(token)) return;
       setLastRun(failure.run);
     },
   });
@@ -78,18 +98,30 @@ export function AssistantDetailPage() {
       toast.error("Введите запрос");
       return;
     }
+    activeRunRef.current?.controller.abort();
+    const controller = new AbortController();
+    const token = Date.now();
+    activeRunRef.current = { controller, token };
     setLastRun(null);
     runMutation.mutate(
-      { input: { userPrompt: trimmed }, streaming },
+      { input: { userPrompt: trimmed }, streaming, signal: controller.signal },
       {
         onSuccess: (run) => {
+          if (!isCurrentRun(token)) return;
           setLastRun(run);
           if (run.status === "failed") {
             toast.error(getRunErrorMessage(run.error));
           }
         },
         onError: (err) => {
+          if (!isCurrentRun(token)) return;
+          if (controller.signal.aborted) return;
           showErrorToast(err);
+        },
+        onSettled: () => {
+          if (activeRunRef.current?.token === token) {
+            activeRunRef.current = null;
+          }
         },
       },
     );
@@ -180,41 +212,41 @@ export function AssistantDetailPage() {
                   </div>
                 )}
 
-                {!lastRun && (
+                {!visibleRun && (
                   <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
                     Здесь появится ответ ассистента после запуска.
                   </div>
                 )}
 
-                {lastRun && (
+                {visibleRun && (
                   <div ref={resultRef} className="space-y-3 scroll-mt-6">
                     <div className="flex items-center justify-between">
                       <h2 className="text-xl font-extrabold">Результат</h2>
                       <div className="flex items-center gap-2">
-                        {lastRun.status === "pending" && (
+                        {visibleRun.status === "pending" && (
                           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         )}
-                        <RunStatusBadge status={lastRun.status} />
+                        <RunStatusBadge status={visibleRun.status} />
                       </div>
                     </div>
-                    {lastRun.status === "failed" ? (
+                    {visibleRun.status === "failed" ? (
                       <Alert variant="destructive">
                         <AlertCircle className="h-4 w-4" />
                         <AlertTitle>Ошибка</AlertTitle>
                         <AlertDescription>
-                          {getRunErrorMessage(lastRun.error)}
+                          {getRunErrorMessage(visibleRun.error)}
                         </AlertDescription>
                       </Alert>
                     ) : (
                       <div className="space-y-2">
                         <div className="rounded-2xl bg-secondary p-4 text-[0.9375rem] leading-relaxed whitespace-pre-wrap">
-                          {lastRun.output ||
-                            (lastRun.status === "pending"
+                          {visibleRun.output ||
+                            (visibleRun.status === "pending"
                               ? "Генерация началась..."
                               : "—")}
                         </div>
                         <RunFeedbackControl
-                          run={lastRun}
+                          run={visibleRun}
                           currentUserId={user?.id}
                           onRunUpdated={setLastRun}
                         />

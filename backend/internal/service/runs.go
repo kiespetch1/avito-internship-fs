@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +21,7 @@ type RunRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.AssistantRun, error)
 	UpsertFeedback(ctx context.Context, runID uuid.UUID, rating domain.RunFeedbackRating) (domain.AssistantRun, error)
 	List(ctx context.Context, f repository.RunListFilter) ([]domain.AssistantRun, int, error)
+	ReapPending(ctx context.Context, olderThan time.Duration, reason string) (int64, error)
 }
 
 type RunListInput struct {
@@ -59,28 +62,43 @@ func (s *RunService) SetFeedback(ctx context.Context, runID, userID uuid.UUID, r
 }
 
 type RunService struct {
-	runs     RunRepo
-	provider llm.Provider
-	timeout  time.Duration
+	runs      RunRepo
+	provider  llm.Provider
+	timeout   time.Duration
+	lifecycle context.Context
+	active    sync.WaitGroup
 }
 
-func NewRunService(runs RunRepo, provider llm.Provider, timeout time.Duration) *RunService {
+// NewRunService строит сервис запусков. lifecycle — серверный контекст, отменяемый при shutdown:
+// он используется для синхронного Run, чтобы LLM-вызов пережил обрыв соединения клиента,
+// но не висел вечно при остановке сервиса.
+func NewRunService(lifecycle context.Context, runs RunRepo, provider llm.Provider, timeout time.Duration) *RunService {
+	if lifecycle == nil {
+		lifecycle = context.Background()
+	}
+
 	return &RunService{
-		runs:     runs,
-		provider: provider,
-		timeout:  timeout,
+		runs:      runs,
+		provider:  provider,
+		timeout:   timeout,
+		lifecycle: lifecycle,
 	}
 }
 
 // Run запускает ассистента через LLM-провайдер. Возвращает run в финальном состоянии (success или failed),
-// а при ошибке провайдера — обёрнутую llm.ErrProviderFailed, чтобы handler выбрал нужный HTTP-статус
-func (s *RunService) Run(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.AssistantRun, error) {
-	assistant, run, err := s.prepareRun(ctx, assistantID, userID, userPrompt)
+// а при ошибке провайдера — обёрнутую llm.ErrProviderFailed, чтобы handler выбрал нужный HTTP-статус.
+// LLM-вызов отвязан от request ctx, чтобы запуск всегда дошёл до терминального статуса даже при обрыве клиента,
+// но привязан к lifecycle, чтобы graceful shutdown корректно прерывал зависшие запросы к провайдеру.
+func (s *RunService) Run(_ context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.AssistantRun, error) {
+	s.active.Add(1)
+	defer s.active.Done()
+
+	assistant, run, err := s.prepareRun(assistantID, userID, userPrompt)
 	if err != nil {
 		return domain.AssistantRun{}, err
 	}
 
-	llmCtx, llmCancel := context.WithTimeout(context.Background(), s.timeout)
+	llmCtx, llmCancel := context.WithTimeout(s.lifecycle, s.timeout)
 	defer llmCancel()
 
 	start := time.Now()
@@ -94,8 +112,14 @@ func (s *RunService) Run(ctx context.Context, assistantID, userID uuid.UUID, use
 	return s.completeRun(run, resp, llmErr, latencyMs)
 }
 
+// RunStream запускает ассистента в стриминговом режиме. LLM-вызов привязан к lifecycle,
+// а не к request ctx: даже если клиент отключится, провайдер дочитает поток до конца и run
+// получит терминальный статус. Колбэки клиенту прекращаются по обрыву ctx, но запуск не страдает.
 func (s *RunService) RunStream(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string, callbacks RunStreamCallbacks) (domain.AssistantRun, error) {
-	assistant, run, err := s.prepareRun(ctx, assistantID, userID, userPrompt)
+	s.active.Add(1)
+	defer s.active.Done()
+
+	assistant, run, err := s.prepareRun(assistantID, userID, userPrompt)
 	if err != nil {
 		return domain.AssistantRun{}, err
 	}
@@ -103,7 +127,7 @@ func (s *RunService) RunStream(ctx context.Context, assistantID, userID uuid.UUI
 		callbacks.OnRunCreated(run)
 	}
 
-	llmCtx, llmCancel := context.WithTimeout(ctx, s.timeout)
+	llmCtx, llmCancel := context.WithTimeout(s.lifecycle, s.timeout)
 	defer llmCancel()
 
 	start := time.Now()
@@ -112,17 +136,45 @@ func (s *RunService) RunStream(ctx context.Context, assistantID, userID uuid.UUI
 		SystemPrompt: assistant.SystemPrompt,
 		UserPrompt:   userPrompt,
 	}, func(chunk llm.StreamChunk) {
-		if callbacks.OnDelta != nil && chunk.Delta != "" {
-			callbacks.OnDelta(chunk.Delta)
+		if callbacks.OnDelta == nil || chunk.Delta == "" {
+			return
 		}
+		if ctx.Err() != nil {
+			return
+		}
+		callbacks.OnDelta(chunk.Delta)
 	})
 	latencyMs := int(time.Since(start) / time.Millisecond)
 
 	return s.completeRun(run, resp, llmErr, latencyMs)
 }
 
-func (s *RunService) prepareRun(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.Assistant, domain.AssistantRun, error) {
-	dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+// Shutdown ждёт завершения активных запусков или истечения ctx, что наступит раньше.
+// Должен вызываться после http.Server.Shutdown и до отмены lifecycle context'а,
+// чтобы LLM-вызовы успели дописать терминальный статус в БД.
+func (s *RunService) Shutdown(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		s.active.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// ReapStalePending помечает зависшие pending-раны как failed. Запускается на старте сервиса,
+// чтобы подчистить запуски, которые не дожили до терминала из-за crash/SIGKILL/OOM.
+// olderThan должен быть строго больше LLM-таймаута.
+func (s *RunService) ReapStalePending(ctx context.Context, olderThan time.Duration, reason string) (int64, error) {
+	return s.runs.ReapPending(ctx, olderThan, reason)
+}
+
+func (s *RunService) prepareRun(assistantID, userID uuid.UUID, userPrompt string) (domain.Assistant, domain.AssistantRun, error) {
+	dbCtx, dbCancel := context.WithTimeout(s.lifecycle, 5*time.Second)
 	defer dbCancel()
 
 	assistant, run, err := s.runs.CreatePendingForActiveAssistant(dbCtx, assistantID, userID, userPrompt)
@@ -134,12 +186,14 @@ func (s *RunService) prepareRun(ctx context.Context, assistantID, userID uuid.UU
 }
 
 func (s *RunService) completeRun(run domain.AssistantRun, resp llm.Response, llmErr error, latencyMs int) (domain.AssistantRun, error) {
-	finalCtx, finalCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	finalCtx, finalCancel := context.WithTimeout(s.lifecycle, 5*time.Second)
 	defer finalCancel()
 
 	if llmErr != nil {
 		wrapped := fmt.Errorf("%w: %w", llm.ErrProviderFailed, llmErr)
-		_ = s.runs.MarkFailed(finalCtx, run.ID, llmErr.Error(), latencyMs)
+		if err := s.runs.MarkFailed(finalCtx, run.ID, llmErr.Error(), latencyMs); err != nil {
+			slog.Error("mark run failed", "run_id", run.ID, "error", err)
+		}
 		updated, getErr := s.runs.GetByID(finalCtx, run.ID)
 		if getErr != nil {
 			return run, wrapped

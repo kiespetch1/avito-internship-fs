@@ -52,12 +52,26 @@ func main() {
 	runRepo := repository.NewRunRepository(db)
 	userRepo := repository.NewUserRepository(db)
 
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
+	defer lifecycleCancel()
+
+	runService := service.NewRunService(lifecycleCtx, runRepo, provider, cfg.LLM.Timeout)
+
+	reapCtx, reapCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	reaped, reapErr := runService.ReapStalePending(reapCtx, cfg.LLM.Timeout+time.Minute, "interrupted: backend restarted before run completed")
+	reapCancel()
+	if reapErr != nil {
+		slog.Error("reap stale pending runs failed", "error", reapErr)
+	} else if reaped > 0 {
+		slog.Info("reaped stale pending runs", "count", reaped)
+	}
+
 	handler := newRouter(routerDeps{
 		Issuer:            issuer,
 		AuthHandler:       auth.NewHandler(issuer, userRepo),
 		CategoriesHandler: categories.NewHandler(service.NewCategoryService(categoryRepo)),
 		AssistantsHandler: assistants.NewHandler(service.NewAssistantService(assistantRepo)),
-		RunsHandler:       runs.NewHandler(service.NewRunService(runRepo, provider, cfg.LLM.Timeout)),
+		RunsHandler:       runs.NewHandler(runService),
 	})
 
 	server := &http.Server{
@@ -84,12 +98,18 @@ func main() {
 	sig := <-quit
 	slog.Info("shutting down", "signal", sig.String())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
 		slog.Error("shutdown error", "error", err)
 	}
+	// Ждём, пока активные LLM-вызовы допишут терминальный статус в БД.
+	// Без этого lifecycleCancel() оборвал бы MarkSuccess/MarkFailed и run остался бы pending.
+	if err := runService.Shutdown(ctx); err != nil {
+		slog.Error("runs drain error", "error", err)
+	}
+	lifecycleCancel()
 
 	_ = db.Close()
 	slog.Info("backend stopped")

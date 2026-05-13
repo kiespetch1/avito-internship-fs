@@ -24,7 +24,7 @@ func (r *capturingRunRepo) List(_ context.Context, f repository.RunListFilter) (
 
 func TestRunServiceListNormalizesPagination(t *testing.T) {
 	repo := &capturingRunRepo{fakeRunRepo: newFakeRunRepo()}
-	svc := NewRunService(repo, &fakeProvider{}, 0)
+	svc := NewRunService(context.Background(), repo, &fakeProvider{}, 0)
 	_, _, err := svc.List(context.Background(), RunListInput{Page: 0, PageSize: 0})
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
@@ -39,7 +39,7 @@ func TestRunServiceListNormalizesPagination(t *testing.T) {
 
 func TestRunServiceListPassesFilters(t *testing.T) {
 	repo := &capturingRunRepo{fakeRunRepo: newFakeRunRepo()}
-	svc := NewRunService(repo, &fakeProvider{}, 0)
+	svc := NewRunService(context.Background(), repo, &fakeProvider{}, 0)
 
 	userID := uuid.New()
 	assistantID := uuid.New()

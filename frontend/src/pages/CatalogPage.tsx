@@ -56,6 +56,14 @@ export function CatalogPage() {
     return map;
   }, [categoriesQuery.data]);
 
+  const selectedCategoryValue =
+    filters.categoryId === "" ? ALL_CATEGORIES : filters.categoryId;
+  const categoryTriggerLabel =
+    selectedCategoryValue === ALL_CATEGORIES
+      ? "Все категории"
+      : (categoryLabels[selectedCategoryValue] ??
+        (categoriesQuery.isLoading ? "…" : "Категория"));
+
   const listQuery = {
     q: filters.q || undefined,
     categoryId: filters.categoryId || undefined,
@@ -120,7 +128,7 @@ export function CatalogPage() {
         </div>
 
         <Select
-          value={filters.categoryId === "" ? ALL_CATEGORIES : filters.categoryId}
+          value={selectedCategoryValue}
           onValueChange={(v) =>
             setFilters({
               categoryId: v === null || v === ALL_CATEGORIES ? "" : v,
@@ -129,7 +137,7 @@ export function CatalogPage() {
           }
         >
           <SelectTrigger className="w-44">
-            <SelectValue placeholder="Категория" items={categoryLabels}/>
+            <SelectValue placeholder="Категория">{categoryTriggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL_CATEGORIES}>Все категории</SelectItem>

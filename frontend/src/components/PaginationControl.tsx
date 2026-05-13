@@ -34,15 +34,19 @@ function buildPages(current: number, total: number): Array<number | "ellipsis"> 
 export function PaginationControl({ pagination, onChange }: Props) {
   const { page, pageSize, total } = pagination;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  // Если page из URL вышел за пределы totalPages (фильтры/удаления сузили выдачу),
+  // отображаем как будто пользователь на последней странице. Сам page в URL не трогаем —
+  // он подровняется когда пользователь кликнет назад/последнюю
+  const displayPage = Math.min(Math.max(1, page), totalPages);
   if (totalPages <= 1) return null;
 
-  const canPrev = page > 1;
-  const canNext = page < totalPages;
-  const pages = buildPages(page, totalPages);
+  const canPrev = displayPage > 1;
+  const canNext = displayPage < totalPages;
+  const pages = buildPages(displayPage, totalPages);
 
   const handleClick = (e: React.MouseEvent, target: number) => {
     e.preventDefault();
-    if (target >= 1 && target <= totalPages && target !== page) {
+    if (target >= 1 && target <= totalPages && target !== displayPage) {
       onChange(target);
     }
   };
@@ -55,7 +59,7 @@ export function PaginationControl({ pagination, onChange }: Props) {
             href="#"
             aria-disabled={!canPrev}
             className={!canPrev ? "pointer-events-none opacity-40" : ""}
-            onClick={(e) => handleClick(e, page - 1)}
+            onClick={(e) => handleClick(e, displayPage - 1)}
           />
         </PaginationItem>
 
@@ -68,7 +72,7 @@ export function PaginationControl({ pagination, onChange }: Props) {
             <PaginationItem key={p}>
               <PaginationLink
                 href="#"
-                isActive={p === page}
+                isActive={p === displayPage}
                 onClick={(e) => handleClick(e, p)}
               >
                 {p}
@@ -82,7 +86,7 @@ export function PaginationControl({ pagination, onChange }: Props) {
             href="#"
             aria-disabled={!canNext}
             className={!canNext ? "pointer-events-none opacity-40" : ""}
-            onClick={(e) => handleClick(e, page + 1)}
+            onClick={(e) => handleClick(e, displayPage + 1)}
           />
         </PaginationItem>
       </PaginationContent>

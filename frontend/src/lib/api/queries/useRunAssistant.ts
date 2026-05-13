@@ -17,6 +17,7 @@ type RunAssistantProgress = {
 type RunAssistantVariables = {
   input: AssistantRunCreateIn;
   streaming: boolean;
+  signal?: AbortSignal;
 };
 
 export function useRunAssistant(
@@ -25,10 +26,10 @@ export function useRunAssistant(
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ input, streaming }: RunAssistantVariables) =>
+    mutationFn: ({ input, streaming, signal }: RunAssistantVariables) =>
       streaming
-        ? assistants.runStream(assistantId, input, progress)
-        : assistants.run(assistantId, input),
+        ? assistants.runStream(assistantId, input, progress, signal)
+        : assistants.run(assistantId, input, signal),
     onSettled: () => qc.invalidateQueries({ queryKey: qk.runs.root() }),
   });
 }

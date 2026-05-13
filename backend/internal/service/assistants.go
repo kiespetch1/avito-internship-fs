@@ -60,8 +60,16 @@ type AssistantListInput struct {
 	PageSize        int
 }
 
-func (s *AssistantService) Get(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error) {
-	return s.repo.GetForUser(ctx, userID, id)
+func (s *AssistantService) Get(ctx context.Context, userID, id uuid.UUID, includeInactive bool) (domain.Assistant, error) {
+	a, err := s.repo.GetForUser(ctx, userID, id)
+	if err != nil {
+		return domain.Assistant{}, err
+	}
+	if !a.IsActive && !includeInactive {
+		return domain.Assistant{}, domain.ErrAssistantNotFound
+	}
+
+	return a, nil
 }
 
 func (s *AssistantService) Create(ctx context.Context, in AssistantCreateInput) (domain.Assistant, error) {

@@ -27,7 +27,7 @@ const (
 )
 
 type Service interface {
-	Get(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error)
+	Get(ctx context.Context, userID, id uuid.UUID, includeInactive bool) (domain.Assistant, error)
 	Create(ctx context.Context, in service.AssistantCreateInput) (domain.Assistant, error)
 	Update(ctx context.Context, in service.AssistantUpdateInput) (domain.Assistant, error)
 	List(ctx context.Context, in service.AssistantListInput) ([]domain.Assistant, int, error)
@@ -129,13 +129,14 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a, err := h.svc.Get(r.Context(), principal.UserID, id)
+	isAdmin := principal.Role == auth.RoleAdmin
+	a, err := h.svc.Get(r.Context(), principal.UserID, id, isAdmin)
 	if err != nil {
 		writeAssistantError(w, err)
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, toAPIAssistant(a, principal.Role != auth.RoleAdmin))
+	httpx.WriteJSON(w, http.StatusOK, toAPIAssistant(a, !isAdmin))
 }
 
 func (h *Handler) AddFavorite(w http.ResponseWriter, r *http.Request) {

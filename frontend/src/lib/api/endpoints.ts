@@ -73,17 +73,19 @@ export const assistants = {
     apiRequest<void>(`/assistants/${id}/favorite`, { method: "PUT" }),
   removeFavorite: (id: string) =>
     apiRequest<void>(`/assistants/${id}/favorite`, { method: "DELETE" }),
-  run: (id: string, input: AssistantRunCreateIn) =>
-    apiRequest<AssistantRun>(`/assistants/${id}/run`, { method: "POST", body: input }),
+  run: (id: string, input: AssistantRunCreateIn, signal?: AbortSignal) =>
+    apiRequest<AssistantRun>(`/assistants/${id}/run`, { method: "POST", body: input, signal }),
   runStream: async (
     id: string,
     input: AssistantRunCreateIn,
     callbacks: RunStreamCallbacks = {},
+    signal?: AbortSignal,
   ): Promise<AssistantRun> => {
     const state: { finalRun?: AssistantRun } = {};
     await apiStreamRequest(`/assistants/${id}/run/stream`, {
       method: "POST",
       body: input,
+      signal,
       onEvent: (event, data) => {
         if (event === "run") {
           if (!isAssistantRun(data)) throw malformedStreamEvent(event);

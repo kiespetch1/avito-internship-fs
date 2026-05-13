@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -94,6 +95,27 @@ func (r *RunRepository) MarkSuccess(ctx context.Context, id uuid.UUID, output st
 	}
 
 	return nil
+}
+
+// ReapPending помечает зависшие pending-раны как failed. Используется при старте,
+// чтобы подчистить запуски, не дожившие до терминального статуса из-за crash/SIGKILL.
+// olderThan должен быть строго больше LLM-таймаута, иначе можно прибить активный запуск.
+func (r *RunRepository) ReapPending(ctx context.Context, olderThan time.Duration, reason string) (int64, error) {
+	const q = `
+		UPDATE assistant_runs
+		SET status = 'failed', error = $1
+		WHERE status = 'pending' AND created_at < now() - $2::interval`
+
+	res, err := r.db.ExecContext(ctx, q, reason, fmt.Sprintf("%d milliseconds", olderThan.Milliseconds()))
+	if err != nil {
+		return 0, fmt.Errorf("reap pending runs: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("reap pending runs rows: %w", err)
+	}
+
+	return n, nil
 }
 
 func (r *RunRepository) MarkFailed(ctx context.Context, id uuid.UUID, errMsg string, latencyMs int) error {
