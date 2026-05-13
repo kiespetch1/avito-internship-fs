@@ -50,10 +50,11 @@ func main() {
 	categoryRepo := repository.NewCategoryRepository(db)
 	assistantRepo := repository.NewAssistantRepository(db)
 	runRepo := repository.NewRunRepository(db)
+	userRepo := repository.NewUserRepository(db)
 
 	handler := newRouter(routerDeps{
 		Issuer:            issuer,
-		AuthHandler:       auth.NewHandler(issuer),
+		AuthHandler:       auth.NewHandler(issuer, userRepo),
 		CategoriesHandler: categories.NewHandler(service.NewCategoryService(categoryRepo)),
 		AssistantsHandler: assistants.NewHandler(service.NewAssistantService(assistantRepo)),
 		RunsHandler:       runs.NewHandler(service.NewRunService(assistantRepo, runRepo, provider, cfg.LLM.Timeout)),

@@ -22,7 +22,6 @@ function setAuth(user: User | null) {
     user,
     token: user ? "token" : null,
     isAuthenticated: user !== null,
-    login: vi.fn(),
     logout: vi.fn(),
   });
 }

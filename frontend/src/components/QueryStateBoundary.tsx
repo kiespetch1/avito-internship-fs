@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiError } from "@/lib/api";
+import {getErrorMessage} from "@/lib/api/errorMessage.ts";
 
 type Props<T> = {
   query: {
@@ -61,7 +61,8 @@ function DefaultEmpty() {
 }
 
 function ErrorState({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = error instanceof ApiError ? error.message : "Не удалось загрузить данные";
+  const message = getErrorMessage(error);
+
   return (
     <Alert variant="destructive" className="flex items-start justify-between gap-4">
       <div>

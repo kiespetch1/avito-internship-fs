@@ -15,15 +15,16 @@ const (
 
 // Defines values for ErrorResponseErrorCode.
 const (
-	ASSISTANTINACTIVE ErrorResponseErrorCode = "ASSISTANT_INACTIVE"
-	ASSISTANTNOTFOUND ErrorResponseErrorCode = "ASSISTANT_NOT_FOUND"
-	CATEGORYNOTFOUND  ErrorResponseErrorCode = "CATEGORY_NOT_FOUND"
-	FORBIDDEN         ErrorResponseErrorCode = "FORBIDDEN"
-	INTERNALERROR     ErrorResponseErrorCode = "INTERNAL_ERROR"
-	INVALIDREQUEST    ErrorResponseErrorCode = "INVALID_REQUEST"
-	LLMPROVIDERERROR  ErrorResponseErrorCode = "LLM_PROVIDER_ERROR"
-	NOTFOUND          ErrorResponseErrorCode = "NOT_FOUND"
-	UNAUTHORIZED      ErrorResponseErrorCode = "UNAUTHORIZED"
+	ASSISTANTINACTIVE  ErrorResponseErrorCode = "ASSISTANT_INACTIVE"
+	ASSISTANTNOTFOUND  ErrorResponseErrorCode = "ASSISTANT_NOT_FOUND"
+	CATEGORYNOTFOUND   ErrorResponseErrorCode = "CATEGORY_NOT_FOUND"
+	EMAILALREADYEXISTS ErrorResponseErrorCode = "EMAIL_ALREADY_EXISTS"
+	FORBIDDEN          ErrorResponseErrorCode = "FORBIDDEN"
+	INTERNALERROR      ErrorResponseErrorCode = "INTERNAL_ERROR"
+	INVALIDREQUEST     ErrorResponseErrorCode = "INVALID_REQUEST"
+	LLMPROVIDERERROR   ErrorResponseErrorCode = "LLM_PROVIDER_ERROR"
+	NOTFOUND           ErrorResponseErrorCode = "NOT_FOUND"
+	UNAUTHORIZED       ErrorResponseErrorCode = "UNAUTHORIZED"
 )
 
 // Defines values for Role.
@@ -109,6 +110,14 @@ type AssistantUpdateIn struct {
 	Model             string             `json:"model"`
 	Name              string             `json:"name"`
 	SystemPrompt      string             `json:"systemPrompt"`
+}
+
+// AuthCredentialsIn defines model for AuthCredentialsIn.
+type AuthCredentialsIn struct {
+	Email openapi_types.Email `json:"email"`
+
+	// Password Минимум 8 символов, хотя бы одна буква и хотя бы одна цифра или спецсимвол
+	Password string `json:"password"`
 }
 
 // Category defines model for Category.
@@ -227,6 +236,12 @@ type PostAssistantsAssistantIdRunJSONRequestBody = AssistantRunCreateIn
 
 // PostAssistantsAssistantIdRunStreamJSONRequestBody defines body for PostAssistantsAssistantIdRunStream for application/json ContentType.
 type PostAssistantsAssistantIdRunStreamJSONRequestBody = AssistantRunCreateIn
+
+// PostAuthLoginJSONRequestBody defines body for PostAuthLogin for application/json ContentType.
+type PostAuthLoginJSONRequestBody = AuthCredentialsIn
+
+// PostAuthRegisterJSONRequestBody defines body for PostAuthRegister for application/json ContentType.
+type PostAuthRegisterJSONRequestBody = AuthCredentialsIn
 
 // PostCategoriesJSONRequestBody defines body for PostCategories for application/json ContentType.
 type PostCategoriesJSONRequestBody = CategoryCreateIn

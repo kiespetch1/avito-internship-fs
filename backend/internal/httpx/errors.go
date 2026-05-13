@@ -9,15 +9,16 @@ import (
 type ErrorCode string
 
 const (
-	CodeInvalidRequest    ErrorCode = "INVALID_REQUEST"
-	CodeUnauthorized      ErrorCode = "UNAUTHORIZED"
-	CodeForbidden         ErrorCode = "FORBIDDEN"
-	CodeNotFound          ErrorCode = "NOT_FOUND"
-	CodeCategoryNotFound  ErrorCode = "CATEGORY_NOT_FOUND"
-	CodeAssistantNotFound ErrorCode = "ASSISTANT_NOT_FOUND"
-	CodeAssistantInactive ErrorCode = "ASSISTANT_INACTIVE"
-	CodeLLMProviderError  ErrorCode = "LLM_PROVIDER_ERROR"
-	CodeInternalError     ErrorCode = "INTERNAL_ERROR"
+	CodeInvalidRequest     ErrorCode = "INVALID_REQUEST"
+	CodeUnauthorized       ErrorCode = "UNAUTHORIZED"
+	CodeForbidden          ErrorCode = "FORBIDDEN"
+	CodeNotFound           ErrorCode = "NOT_FOUND"
+	CodeEmailAlreadyExists ErrorCode = "EMAIL_ALREADY_EXISTS"
+	CodeCategoryNotFound   ErrorCode = "CATEGORY_NOT_FOUND"
+	CodeAssistantNotFound  ErrorCode = "ASSISTANT_NOT_FOUND"
+	CodeAssistantInactive  ErrorCode = "ASSISTANT_INACTIVE"
+	CodeLLMProviderError   ErrorCode = "LLM_PROVIDER_ERROR"
+	CodeInternalError      ErrorCode = "INTERNAL_ERROR"
 )
 
 type errorBody struct {

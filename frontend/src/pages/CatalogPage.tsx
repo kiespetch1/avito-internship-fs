@@ -223,7 +223,6 @@ export function CatalogPage() {
                       compact
                       className="absolute top-3 right-3 z-10 bg-card/90 backdrop-blur hover:bg-card"
                     />
-                    <div className="aspect-[4/3] bg-gradient-to-br from-primary/20 to-avito-purple/20" />
                     <div className="space-y-2 p-4">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Tag>{a.categoryName ?? "Без категории"}</Tag>

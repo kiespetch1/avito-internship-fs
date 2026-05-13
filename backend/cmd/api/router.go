@@ -35,6 +35,8 @@ func newRouter(d routerDeps) http.Handler {
 	mux.HandleFunc("GET /docs", swaggerUI)
 	mux.HandleFunc("GET /docs/", swaggerUI)
 	mux.HandleFunc("GET /docs/openapi.yaml", openAPISpec)
+	mux.HandleFunc("POST /auth/register", d.AuthHandler.Register)
+	mux.HandleFunc("POST /auth/login", d.AuthHandler.Login)
 	mux.HandleFunc("POST /dummyLogin", d.AuthHandler.DummyLogin)
 
 	mux.Handle("GET /categories", authed(http.HandlerFunc(d.CategoriesHandler.List)))

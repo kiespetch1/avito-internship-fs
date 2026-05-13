@@ -20,10 +20,11 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Tag } from "@/components/ui/tag";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, type AssistantRun, assistants as assistantsApi } from "@/lib/api";
+import { type AssistantRun, assistants as assistantsApi } from "@/lib/api";
 import { useRunAssistant } from "@/lib/api/queries/useRunAssistant";
 import { qk } from "@/lib/api/queryKeys";
 import { useAuth } from "@/lib/auth";
+import {getRunErrorMessage, showErrorToast} from "@/lib/api/errorMessage.ts";
 
 export function AssistantDetailPage() {
   const { id = "" } = useParams<{ id: string }>();
@@ -82,13 +83,11 @@ export function AssistantDetailPage() {
         onSuccess: (run) => {
           setLastRun(run);
           if (run.status === "failed") {
-            toast.error(run.error ?? "Запуск завершился ошибкой");
+            toast.error(getRunErrorMessage(run.error));
           }
         },
         onError: (err) => {
-          const message =
-            err instanceof ApiError ? err.message : "Не удалось запустить ассистента";
-          toast.error(message);
+          showErrorToast(err);
         },
       },
     );
@@ -196,7 +195,7 @@ export function AssistantDetailPage() {
                         <AlertCircle className="h-4 w-4" />
                         <AlertTitle>Ошибка</AlertTitle>
                         <AlertDescription>
-                          {lastRun.error ?? "Неизвестная ошибка"}
+                          {getRunErrorMessage(lastRun.error)}
                         </AlertDescription>
                       </Alert>
                     ) : (

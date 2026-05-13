@@ -38,6 +38,122 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Зарегистрировать пользователя */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AuthCredentialsIn"];
+                };
+            };
+            responses: {
+                /** @description JWT и новый пользователь */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Token"];
+                    };
+                };
+                /** @description Некорректный запрос */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Пользователь с такой почтой уже существует */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Войти по email и паролю */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AuthCredentialsIn"];
+                };
+            };
+            responses: {
+                /** @description JWT и пользователь */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Token"];
+                    };
+                };
+                /** @description Некорректный запрос */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Неверный email или пароль */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dummyLogin": {
         parameters: {
             query?: never;
@@ -832,7 +948,7 @@ export interface components {
         ErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "INVALID_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "CATEGORY_NOT_FOUND" | "ASSISTANT_NOT_FOUND" | "ASSISTANT_INACTIVE" | "LLM_PROVIDER_ERROR" | "INTERNAL_ERROR";
+                code: "INVALID_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "EMAIL_ALREADY_EXISTS" | "CATEGORY_NOT_FOUND" | "ASSISTANT_NOT_FOUND" | "ASSISTANT_INACTIVE" | "LLM_PROVIDER_ERROR" | "INTERNAL_ERROR";
                 message: string;
             };
         };
@@ -856,6 +972,15 @@ export interface components {
             role: components["schemas"]["Role"];
             /** Format: date-time */
             createdAt?: string | null;
+        };
+        AuthCredentialsIn: {
+            /** Format: email */
+            email: string;
+            /**
+             * Format: password
+             * @description Минимум 8 символов, хотя бы одна буква и хотя бы одна цифра или спецсимвол
+             */
+            password: string;
         };
         Category: {
             /** Format: uuid */

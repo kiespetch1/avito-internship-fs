@@ -63,6 +63,7 @@ components:
                 - UNAUTHORIZED
                 - FORBIDDEN
                 - NOT_FOUND
+                - EMAIL_ALREADY_EXISTS
                 - CATEGORY_NOT_FOUND
                 - ASSISTANT_NOT_FOUND
                 - ASSISTANT_INACTIVE
@@ -119,6 +120,21 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    AuthCredentialsIn:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: Минимум 8 символов, хотя бы одна буква и хотя бы одна цифра или спецсимвол
 
     Category:
       type: object
@@ -342,6 +358,66 @@ paths:
       responses:
         "200":
           description: OK
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Зарегистрировать пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthCredentialsIn"
+      responses:
+        "201":
+          description: JWT и новый пользователь
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Token"
+        "400":
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Пользователь с такой почтой уже существует
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Войти по email и паролю
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthCredentialsIn"
+      responses:
+        "200":
+          description: JWT и пользователь
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Token"
+        "400":
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Неверный email или пароль
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /dummyLogin:
     post:

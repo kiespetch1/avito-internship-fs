@@ -9,6 +9,7 @@ import {
 export type Role = Schemas["Role"];
 export type User = Schemas["User"];
 export type Token = Schemas["Token"];
+export type AuthCredentialsIn = Schemas["AuthCredentialsIn"];
 export type Category = Schemas["Category"];
 export type CategoryCreateIn = Schemas["CategoryCreateIn"];
 export type Assistant = Schemas["Assistant"];
@@ -34,6 +35,10 @@ export type RunStreamCallbacks = {
 };
 
 export const auth = {
+  register: (input: AuthCredentialsIn) =>
+    apiRequest<Token>("/auth/register", { method: "POST", body: input }),
+  login: (input: AuthCredentialsIn) =>
+    apiRequest<Token>("/auth/login", { method: "POST", body: input }),
   dummyLogin: (role: Role) =>
     apiRequest<Token>("/dummyLogin", { method: "POST", body: { role } }),
 };
@@ -115,6 +120,7 @@ const apiErrorCodes = [
   "UNAUTHORIZED",
   "FORBIDDEN",
   "NOT_FOUND",
+  "EMAIL_ALREADY_EXISTS",
   "CATEGORY_NOT_FOUND",
   "ASSISTANT_NOT_FOUND",
   "ASSISTANT_INACTIVE",
