@@ -27,10 +27,16 @@ type LLMConfig struct {
 	DefaultModel string        `yaml:"defaultModel"`
 }
 
+const DefaultLLMTimeout = 2 * time.Minute
+
 // Load загружает конфиг
 // Приоритет получения данных полей конфига: env > yaml-файл
 func Load(configPath string) (Config, error) {
-	var cfg Config
+	cfg := Config{
+		LLM: LLMConfig{
+			Timeout: DefaultLLMTimeout,
+		},
+	}
 
 	path := configPath
 	if path == "" {

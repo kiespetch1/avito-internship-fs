@@ -174,10 +174,10 @@ export function AdminRunsPage() {
 function RunDetailDialog({ run, onClose }: { run: AssistantRun | null; onClose: () => void }) {
   return (
     <Dialog open={run !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] grid-rows-none flex-col overflow-hidden sm:max-w-2xl">
         {run && (
           <>
-            <DialogHeader>
+            <DialogHeader className="shrink-0 pr-8">
               <DialogTitle className="flex items-center gap-2">
                 {run.assistantName ?? "Запуск"}
                 <RunStatusBadge status={run.status} />
@@ -185,7 +185,7 @@ function RunDetailDialog({ run, onClose }: { run: AssistantRun | null; onClose: 
               <DialogDescription>{formatDateTime(run.createdAt)}</DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4">
+            <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
               <div className="space-y-2">
                 <Label className="text-[0.9375rem] font-bold">Запрос пользователя</Label>
                 <div className="rounded-2xl bg-secondary p-4 text-[0.9375rem] leading-relaxed whitespace-pre-wrap">
@@ -202,7 +202,7 @@ function RunDetailDialog({ run, onClose }: { run: AssistantRun | null; onClose: 
               </div>
             </div>
 
-            <DialogFooter>
+            <DialogFooter className="shrink-0">
               <Button variant="black" size="lg" onClick={onClose}>
                 Закрыть
               </Button>

@@ -25,8 +25,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       JWT_TTL: ${JWT_TTL:-24h}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
-      LLM_TIMEOUT: ${LLM_TIMEOUT:-60s}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120s}
       LLM_DEFAULT_MODEL: ${LLM_DEFAULT_MODEL:-gpt-mock}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
     ports:
       - "8080:8080"
     depends_on:

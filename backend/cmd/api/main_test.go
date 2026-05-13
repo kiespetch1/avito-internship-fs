@@ -32,9 +32,30 @@ func TestResolveLLMProviderEmptyDefaultsToMock(t *testing.T) {
 }
 
 func TestResolveLLMProviderRejectsUnknown(t *testing.T) {
-	_, err := resolveLLMProvider(config.LLMConfig{Provider: "openai"})
+	_, err := resolveLLMProvider(config.LLMConfig{Provider: "unknown"})
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
+	}
+}
+
+func TestResolveLLMProviderOpenAICompatible(t *testing.T) {
+	p, err := resolveLLMProvider(config.LLMConfig{
+		Provider:     "openai-compatible",
+		APIKey:       "test-key",
+		DefaultModel: "openai/gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if _, ok := p.(*llm.OpenAICompatibleProvider); !ok {
+		t.Fatalf("expected *llm.OpenAICompatibleProvider, got %T", p)
+	}
+}
+
+func TestResolveLLMProviderOpenAICompatibleRequiresAPIKey(t *testing.T) {
+	_, err := resolveLLMProvider(config.LLMConfig{Provider: "openai-compatible"})
+	if err == nil {
+		t.Fatal("expected error without api key")
 	}
 }
 

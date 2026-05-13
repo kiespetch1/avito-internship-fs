@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestLoadWithoutFileOrEnvIsZero(t *testing.T) {
+func TestLoadWithoutFileOrEnvUsesDefaults(t *testing.T) {
 	t.Setenv("CONFIG_PATH", filepath.Join(t.TempDir(), "missing.yaml"))
 	clearLLMEnv(t)
 
@@ -15,8 +15,12 @@ func TestLoadWithoutFileOrEnvIsZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
+	if cfg.LLM.Timeout != DefaultLLMTimeout {
+		t.Fatalf("expected default llm timeout %s, got %s", DefaultLLMTimeout, cfg.LLM.Timeout)
+	}
+	cfg.LLM.Timeout = 0
 	if cfg != (Config{}) {
-		t.Fatalf("expected zero config, got %+v", cfg)
+		t.Fatalf("unexpected non-default config fields: %+v", cfg)
 	}
 }
 

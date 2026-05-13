@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -95,9 +96,21 @@ func main() {
 }
 
 func resolveLLMProvider(cfg config.LLMConfig) (llm.Provider, error) {
-	switch cfg.Provider {
+	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	switch provider {
 	case "mock", "":
 		return llm.NewMockProvider(), nil
+	case "openai", "openai-compatible", "openai_compatible":
+		baseURL := strings.TrimSpace(cfg.BaseURL)
+		if baseURL == "" {
+			baseURL = llm.DefaultOpenAIBaseURL
+		}
+
+		return llm.NewOpenAICompatibleProvider(llm.OpenAICompatibleConfig{
+			BaseURL:      baseURL,
+			APIKey:       cfg.APIKey,
+			DefaultModel: cfg.DefaultModel,
+		})
 	default:
 		return nil, errors.New("unsupported llm provider: " + cfg.Provider)
 	}

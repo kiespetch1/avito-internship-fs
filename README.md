@@ -31,10 +31,10 @@ jwtTtl: 24h
 
 llm:
   provider: mock
-  timeout: 60s
+  timeout: 120s
   defaultModel: gpt-mock
-  baseUrl: ""
-  apiKey: ""
+  baseUrl: "" # для openai-compatible по умолчанию будет https://api.openai.com/v1
+  apiKey: ""  # только через env для реального провайдера
 ```
 
 Значения по умолчанию задаются только в одном месте — в `docker-compose.yaml`.
@@ -52,10 +52,10 @@ llm:
 | `DATABASE_URL`       | `postgres://assistants:assistants@postgres:5432/assistants?sslmode=disable`   | Подключение к PostgreSQL                         |
 | `JWT_SECRET`         | `dev-secret`                                                                  | Секрет для подписи JWT                           |
 | `JWT_TTL`            | `24h`                                                                         | Время жизни JWT (`time.Duration`)                |
-| `LLM_PROVIDER`       | `mock`                                                                        | Идентификатор LLM-провайдера                     |
-| `LLM_TIMEOUT`        | `60s`                                                                         | Таймаут запроса к LLM                            |
-| `LLM_DEFAULT_MODEL`  | `gpt-mock`                                                                    | Модель по умолчанию для mock                     |
-| `LLM_BASE_URL`       | —                                                                             | URL OpenAI-совместимого провайдера (опционально) |
+| `LLM_PROVIDER`       | `mock`                                                                        | Идентификатор LLM-провайдера: `mock`, `openai-compatible`, `openai` |
+| `LLM_TIMEOUT`        | `120s`                                                                        | Таймаут запроса к LLM                            |
+| `LLM_DEFAULT_MODEL`  | `gpt-mock`                                                                    | Модель по умолчанию, если ассистент не задал свою |
+| `LLM_BASE_URL`       | —                                                                             | URL OpenAI-совместимого провайдера; если не задан, используется `https://api.openai.com/v1` |
 | `LLM_API_KEY`        | —                                                                             | API-ключ внешнего провайдера (только через env)  |
 | `CONFIG_PATH`        | —                                                                             | Путь к yaml-конфигу (по умолчанию `config.yaml`) |
 
@@ -102,7 +102,7 @@ CREATE INDEX idx_assistant_tags_tag ON assistant_tags (tag_id);
 
 1. **Проверка ассистента** — в рамках HTTP-запроса.
 2. **Сохранение `pending`** — `context.Background()` + 5 с. Запись происходит до вызова LLM; если БД недоступна — HTTP 500 без утечки.
-3. **Вызов LLM** — `context.Background()` + `LLM_TIMEOUT` (60 с по умолчанию). Контекст **не** привязан к HTTP-запросу: если клиент отключится, LLM-вызов продолжится.
+3. **Вызов LLM** — `context.Background()` + `LLM_TIMEOUT` (120 с по умолчанию). Контекст **не** привязан к HTTP-запросу: если клиент отключится, LLM-вызов продолжится.
 4. **Финализация** — ещё один `context.Background()` + 5 с. Запуск переводится в `success` или `failed` независимо от жизни соединения.
 
 Такая схема гарантирует, что запись в `assistant_runs` никогда не зависает в `pending` из-за разрыва клиентского соединения.
@@ -149,28 +149,21 @@ type Provider interface {
 
 `systemPrompt` берётся из поля `assistants.system_prompt` (всегда `NOT NULL` в БД). `model` — из `assistants.model`, задаётся при создании ассистента администратором.
 
-### Переключение с мок-провайдера на внешний OpenAI-совместимый API
+### OpenAI-compatible LLM-провайдер
 
-Логика выбора провайдера сосредоточена в `resolveLLMProvider` (`cmd/api/main.go`). Чтобы добавить поддержку OpenAI-совместимого провайдера:
+Помимо `mock`, backend поддерживает внешний OpenAI-compatible Chat Completions API через `llm.OpenAICompatibleProvider`. Провайдер отправляет `systemPrompt` и `userPrompt` как `messages` в `POST /chat/completions`, читает `choices[0].message.content`, `usage.prompt_tokens`, `usage.completion_tokens` и `finish_reason`.
 
-1. Реализовать `llm.Provider` для HTTP-клиента
-2. Добавить ветку в `resolveLLMProvider`:
+Интеграция реализована как OpenAI-compatible слой, а не как привязка к одному вендору. OpenAI API работает без `LLM_BASE_URL`, а, например, OpenRouter, подключается той же веткой через переопределённый base URL. Mock-провайдер остается дефолтом для проверки задания без ключей и позволяет включить реальный провайдер только env-переменными.
 
-```go
-case "openai":
-    return llm.NewOpenAIProvider(cfg.BaseURL, cfg.APIKey, cfg.DefaultModel), nil
-```
-
-3. Переключить провайдер через переменные окружения — без пересборки образа:
+Если `LLM_BASE_URL` не задан, используется базовый OpenAI endpoint `https://api.openai.com/v1`:
 
 ```bash
-LLM_PROVIDER=openai
-LLM_BASE_URL=https://api.openai.com/v1
+LLM_PROVIDER=openai-compatible
 LLM_API_KEY=sk-...
-LLM_DEFAULT_MODEL=gpt-4o
+LLM_DEFAULT_MODEL=gpt-4o-mini
 ```
 
-`LLM_BASE_URL` позволяет указать любой OpenAI-совместимый эндпоинт.
+Реальный ключ не нужен для запуска проекта: дефолтный `LLM_PROVIDER=mock` остаётся полностью автономным.
 
 ### Стейт-менеджмент на frontend
 

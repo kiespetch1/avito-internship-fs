@@ -169,7 +169,7 @@ export function AssistantDetailPage() {
                       </AlertDescription>
                     </Alert>
                   ) : (
-                    <div className="rounded-2xl bg-secondary p-4 text-[0.9375rem] leading-relaxed">
+                    <div className="rounded-2xl bg-secondary p-4 text-[0.9375rem] leading-relaxed whitespace-pre-wrap">
                       {lastRun.output ?? "—"}
                     </div>
                   )}
