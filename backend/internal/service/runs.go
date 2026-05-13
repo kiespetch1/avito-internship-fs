@@ -12,12 +12,8 @@ import (
 	"avito-internship-fs/internal/repository"
 )
 
-type AssistantRepo interface {
-	Get(ctx context.Context, id uuid.UUID) (domain.Assistant, error)
-}
-
 type RunRepo interface {
-	CreatePending(ctx context.Context, assistantID, userID uuid.UUID, model, userPrompt string) (domain.AssistantRun, error)
+	CreatePendingForActiveAssistant(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.Assistant, domain.AssistantRun, error)
 	MarkSuccess(ctx context.Context, id uuid.UUID, output string, tokensIn, tokensOut, latencyMs int, finishReason string) error
 	MarkFailed(ctx context.Context, id uuid.UUID, errMsg string, latencyMs int) error
 	GetByID(ctx context.Context, id uuid.UUID) (domain.AssistantRun, error)
@@ -63,18 +59,16 @@ func (s *RunService) SetFeedback(ctx context.Context, runID, userID uuid.UUID, r
 }
 
 type RunService struct {
-	assistants AssistantRepo
-	runs       RunRepo
-	provider   llm.Provider
-	timeout    time.Duration
+	runs     RunRepo
+	provider llm.Provider
+	timeout  time.Duration
 }
 
-func NewRunService(assistants AssistantRepo, runs RunRepo, provider llm.Provider, timeout time.Duration) *RunService {
+func NewRunService(runs RunRepo, provider llm.Provider, timeout time.Duration) *RunService {
 	return &RunService{
-		assistants: assistants,
-		runs:       runs,
-		provider:   provider,
-		timeout:    timeout,
+		runs:     runs,
+		provider: provider,
+		timeout:  timeout,
 	}
 }
 
@@ -128,18 +122,10 @@ func (s *RunService) RunStream(ctx context.Context, assistantID, userID uuid.UUI
 }
 
 func (s *RunService) prepareRun(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.Assistant, domain.AssistantRun, error) {
-	assistant, err := s.assistants.Get(ctx, assistantID)
-	if err != nil {
-		return domain.Assistant{}, domain.AssistantRun{}, err
-	}
-	if !assistant.IsActive {
-		return domain.Assistant{}, domain.AssistantRun{}, domain.ErrAssistantInactive
-	}
-
 	dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer dbCancel()
 
-	run, err := s.runs.CreatePending(dbCtx, assistantID, userID, assistant.Model, userPrompt)
+	assistant, run, err := s.runs.CreatePendingForActiveAssistant(dbCtx, assistantID, userID, userPrompt)
 	if err != nil {
 		return domain.Assistant{}, domain.AssistantRun{}, err
 	}

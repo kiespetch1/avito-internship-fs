@@ -28,8 +28,36 @@ type RunListFilter struct {
 	Offset      int
 }
 
-func (r *RunRepository) CreatePending(ctx context.Context, assistantID, userID uuid.UUID, model, userPrompt string) (domain.AssistantRun, error) {
-	const q = `
+func (r *RunRepository) CreatePendingForActiveAssistant(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.Assistant, domain.AssistantRun, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Assistant{}, domain.AssistantRun{}, fmt.Errorf("begin create pending run: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	const assistantQ = `
+		SELECT id, model, system_prompt, is_active
+		FROM assistants
+		WHERE id = $1
+		FOR UPDATE`
+
+	assistant := domain.Assistant{}
+	err = tx.QueryRowContext(ctx, assistantQ, assistantID).
+		Scan(&assistant.ID, &assistant.Model, &assistant.SystemPrompt, &assistant.IsActive)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Assistant{}, domain.AssistantRun{}, domain.ErrAssistantNotFound
+		}
+
+		return domain.Assistant{}, domain.AssistantRun{}, fmt.Errorf("load assistant for run: %w", err)
+	}
+	if !assistant.IsActive {
+		return domain.Assistant{}, domain.AssistantRun{}, domain.ErrAssistantInactive
+	}
+
+	const insertQ = `
 		INSERT INTO assistant_runs (assistant_id, user_id, model, user_prompt, status)
 		VALUES ($1, $2, $3, $4, 'pending')
 		RETURNING id, created_at`
@@ -37,17 +65,20 @@ func (r *RunRepository) CreatePending(ctx context.Context, assistantID, userID u
 	run := domain.AssistantRun{
 		AssistantID: assistantID,
 		UserID:      userID,
-		Model:       model,
+		Model:       assistant.Model,
 		UserPrompt:  userPrompt,
 		Status:      domain.RunPending,
 	}
-	err := r.db.QueryRowContext(ctx, q, assistantID, userID, model, userPrompt).
+	err = tx.QueryRowContext(ctx, insertQ, assistantID, userID, assistant.Model, userPrompt).
 		Scan(&run.ID, &run.CreatedAt)
 	if err != nil {
-		return domain.AssistantRun{}, fmt.Errorf("insert run: %w", err)
+		return domain.Assistant{}, domain.AssistantRun{}, fmt.Errorf("insert run: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.Assistant{}, domain.AssistantRun{}, fmt.Errorf("commit create pending run: %w", err)
 	}
 
-	return run, nil
+	return assistant, run, nil
 }
 
 func (r *RunRepository) MarkSuccess(ctx context.Context, id uuid.UUID, output string, tokensIn, tokensOut, latencyMs int, finishReason string) error {
@@ -145,6 +176,17 @@ func (r *RunRepository) UpsertFeedback(ctx context.Context, runID uuid.UUID, rat
 }
 
 func (r *RunRepository) List(ctx context.Context, f RunListFilter) ([]domain.AssistantRun, int, error) {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelRepeatableRead,
+		ReadOnly:  true,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("begin list runs: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
 	conds := make([]string, 0, 3)
 	args := make([]any, 0, 5)
 
@@ -168,7 +210,7 @@ func (r *RunRepository) List(ctx context.Context, f RunListFilter) ([]domain.Ass
 
 	countQ := "SELECT COUNT(*) FROM assistant_runs r " + where
 	var total int
-	if err := r.db.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
+	if err := tx.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count runs: %w", err)
 	}
 
@@ -183,7 +225,7 @@ func (r *RunRepository) List(ctx context.Context, f RunListFilter) ([]domain.Ass
 		ORDER BY r.created_at DESC, r.id
 		LIMIT $%d OFFSET $%d`, runSelectColumns, where, len(args)-1, len(args))
 
-	rows, err := r.db.QueryContext(ctx, listQ, args...)
+	rows, err := tx.QueryContext(ctx, listQ, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query runs: %w", err)
 	}
@@ -199,6 +241,9 @@ func (r *RunRepository) List(ctx context.Context, f RunListFilter) ([]domain.Ass
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("iterate runs: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, 0, fmt.Errorf("commit list runs: %w", err)
 	}
 
 	return out, total, nil

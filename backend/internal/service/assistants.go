@@ -10,7 +10,7 @@ import (
 )
 
 type AssistantWriteRepo interface {
-	AssistantRepo
+	Get(ctx context.Context, id uuid.UUID) (domain.Assistant, error)
 	GetForUser(ctx context.Context, userID, id uuid.UUID) (domain.Assistant, error)
 	Create(ctx context.Context, in domain.Assistant) (domain.Assistant, error)
 	Update(ctx context.Context, in domain.Assistant) (domain.Assistant, error)

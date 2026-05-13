@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -25,6 +26,7 @@ import (
 	"avito-internship-fs/internal/auth"
 	"avito-internship-fs/internal/categories"
 	"avito-internship-fs/internal/database"
+	"avito-internship-fs/internal/domain"
 	"avito-internship-fs/internal/llm"
 	"avito-internship-fs/internal/repository"
 	"avito-internship-fs/internal/runs"
@@ -111,6 +113,66 @@ func TestE2E_UserCannotRunInactiveAssistant(t *testing.T) {
 	)
 	if status != http.StatusConflict {
 		t.Fatalf("expected 409 for inactive assistant run, got %d: %s", status, body)
+	}
+}
+
+func TestE2E_CreatePendingRunHonorsConcurrentDeactivation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	server := newTestServer(ctx, t, nil)
+	t.Cleanup(server.Close)
+
+	adminToken := dummyLogin(t, server, auth.RoleAdmin)
+	category := createCategory(t, server, adminToken, "Гонки", "")
+	assistant := createAssistant(t, server, adminToken, api.AssistantCreateIn{
+		CategoryId:   openapi_types.UUID(category.Id),
+		Name:         "Спринтер",
+		Description:  "проверка конкурентной деактивации",
+		Model:        "gpt-4o-mini",
+		SystemPrompt: "test",
+	})
+
+	tx, err := server.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin locking tx: %v", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if err := tx.QueryRowContext(ctx, "SELECT id FROM assistants WHERE id = $1 FOR UPDATE", assistant.Id).Scan(new(uuid.UUID)); err != nil {
+		t.Fatalf("lock assistant: %v", err)
+	}
+
+	runRepo := repository.NewRunRepository(server.db)
+	resultCh := make(chan error, 1)
+	go func() {
+		runCtx, runCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer runCancel()
+		_, _, err := runRepo.CreatePendingForActiveAssistant(runCtx, assistant.Id, auth.DummyUserID, "hello")
+		resultCh <- err
+	}()
+
+	time.Sleep(150 * time.Millisecond)
+
+	if _, err := tx.ExecContext(ctx, "UPDATE assistants SET is_active = FALSE WHERE id = $1", assistant.Id); err != nil {
+		t.Fatalf("deactivate assistant in locking tx: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit locking tx: %v", err)
+	}
+
+	err = <-resultCh
+	if !errors.Is(err, domain.ErrAssistantInactive) {
+		t.Fatalf("expected ErrAssistantInactive after concurrent deactivation, got %v", err)
+	}
+
+	var runsCount int
+	if err := server.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM assistant_runs WHERE assistant_id = $1", assistant.Id).Scan(&runsCount); err != nil {
+		t.Fatalf("count assistant runs: %v", err)
+	}
+	if runsCount != 0 {
+		t.Fatalf("expected no runs to be created, got %d", runsCount)
 	}
 }
 
@@ -396,6 +458,7 @@ func (f *failingProvider) GenerateStream(_ context.Context, _ llm.Request, _ fun
 
 type testServer struct {
 	httpSrv   *httptest.Server
+	db        *sql.DB
 	pgCleanup func()
 }
 
@@ -459,15 +522,14 @@ func newTestServer(ctx context.Context, t *testing.T, provider llm.Provider) *te
 		AuthHandler:       auth.NewHandler(issuer, userRepo),
 		CategoriesHandler: categories.NewHandler(service.NewCategoryService(categoryRepo)),
 		AssistantsHandler: assistants.NewHandler(service.NewAssistantService(assistantRepo)),
-		RunsHandler: runs.NewHandler(service.NewRunService(
-			assistantRepo, runRepo, provider, 5*time.Second,
-		)),
+		RunsHandler:       runs.NewHandler(service.NewRunService(runRepo, provider, 5*time.Second)),
 	})
 
 	httpSrv := httptest.NewServer(handler)
 
 	return &testServer{
 		httpSrv: httpSrv,
+		db:      db,
 		pgCleanup: func() {
 			_ = db.Close()
 			_ = testcontainers.TerminateContainer(pgC)

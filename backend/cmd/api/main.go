@@ -57,7 +57,7 @@ func main() {
 		AuthHandler:       auth.NewHandler(issuer, userRepo),
 		CategoriesHandler: categories.NewHandler(service.NewCategoryService(categoryRepo)),
 		AssistantsHandler: assistants.NewHandler(service.NewAssistantService(assistantRepo)),
-		RunsHandler:       runs.NewHandler(service.NewRunService(assistantRepo, runRepo, provider, cfg.LLM.Timeout)),
+		RunsHandler:       runs.NewHandler(service.NewRunService(runRepo, provider, cfg.LLM.Timeout)),
 	})
 
 	server := &http.Server{

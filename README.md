@@ -120,15 +120,16 @@ JWT подписывается только `HS256`; при разборе то�
 
 ### Обработка запуска ассистента и сохранение истории
 
-Реализовано в `backend/internal/service/runs.go`. Запуск проходит через несколько контекстов с разными гарантиями:
+Реализовано в `backend/internal/service/runs.go` и `backend/internal/repository/runs.go`. Запуск разбит на короткую атомарную DB-фазу и два независимых этапа работы с LLM:
 
-1. **Проверка ассистента** — в рамках HTTP-запроса.
-2. **Сохранение `pending`** — `context.Background()` + 5 с. Запись происходит до вызова LLM; если БД недоступна — HTTP 500 без утечки.
-3. **Вызов LLM для обычного `POST /assistants/{assistantId}/run`** — `context.Background()` + `LLM_TIMEOUT` (120 с по умолчанию). Контекст не привязан к HTTP-запросу: если клиент отключится, backend всё равно доведёт уже созданный запуск до финального состояния.
-4. **Вызов LLM для streaming `POST /assistants/{assistantId}/run/stream`** — контекст HTTP-запроса + `LLM_TIMEOUT`. Если клиент закрывает вкладку, отменяет `fetch` или запись SSE ломается, backend отменяет upstream LLM-вызов.
-5. **Финализация** — ещё один `context.Background()` + 5 с. Запуск переводится в `success` или `failed` независимо от жизни соединения.
+1. **Атомарный старт запуска** — `context.Background()` + 5 с. Repository в одной короткой транзакции делает `SELECT ... FOR UPDATE` по `assistants`, проверяет существование и `is_active`, затем вставляет `assistant_runs` со статусом `pending`. Это закрывает race между проверкой активности ассистента и созданием запуска при конкурентной деактивации.
+2. **Вызов LLM для обычного `POST /assistants/{assistantId}/run`** — `context.Background()` + `LLM_TIMEOUT` (120 с по умолчанию). Контекст не привязан к HTTP-запросу: если клиент отключится, backend всё равно доведёт уже созданный запуск до финального состояния.
+3. **Вызов LLM для streaming `POST /assistants/{assistantId}/run/stream`** — контекст HTTP-запроса + `LLM_TIMEOUT`. Если клиент закрывает вкладку, отменяет `fetch` или запись SSE ломается, backend отменяет upstream LLM-вызов.
+4. **Финализация** — ещё один `context.Background()` + 5 с. Запуск переводится в `success` или `failed` независимо от жизни соединения.
 
 Финализация всегда использует отдельный короткий DB-контекст, поэтому запись в `assistant_runs` не должна зависать в `pending` из-за разрыва клиентского соединения.
+
+Каталог ассистентов и история запусков читаются через `READ ONLY` + `REPEATABLE READ` транзакции: `COUNT(*)` и сама страница берутся из одного snapshot, поэтому `pagination.total` не расходится с выдачей при конкурентных изменениях.
 
 ### Контракт мокируемого LLM-провайдера
 
@@ -280,80 +281,94 @@ Backend отдаёт Swagger UI на `GET /docs`. Интерфейс испол�
 | Команда | Что делает |
 | --- | --- |
 | `make -C backend build` | Сборка бинарника `backend/bin/api` |
-| `make -C backend lint` | `go vet` + `golangci-lint run ./...` (если установлен) |
+| `make -C backend lint` | `go vet` + `golangci-lint run ./...` (если установлен локально) |
 | `make -C backend test` | Unit-тесты `go test ./...` |
 | `make -C backend test-e2e` | E2E-тесты за тегом `e2e` через testcontainers (поднимает реальный Postgres в Docker) |
 
-Подробный coverage:
+Подробный unit-coverage:
 
 ```bash
 cd backend
 go test -covermode=atomic -coverprofile=coverage.out ./...
-go tool cover -func=coverage.out      # текстовая сводка по функциям
-go tool cover -html=coverage.out      # HTML-отчёт в браузере
+go tool cover -func=coverage.out | tail -n 1
+go tool cover -html=coverage.out -o coverage.html
 ```
 
-Покрытие unit-тестами на момент написания (`go test -covermode=atomic ./...`):
+Снимок unit-coverage на 2026-05-13 (`go test -covermode=atomic -coverprofile=coverage.out ./...`):
 
 | Пакет | Покрытие |
 | --- | --- |
 | `internal/httpx` | 94.3% |
-| `internal/service` | 92.0% |
-| `internal/llm` | 91.7% |
-| `internal/runs` | 88.2% |
-| `internal/assistants` | 86.7% |
-| `internal/auth` | 85.2% |
-| `internal/config` | 84.4% |
+| `internal/service` | 92.8% |
+| `internal/assistants` | 87.3% |
 | `internal/categories` | 84.0% |
-| `cmd/api` | 35.8% (бóльшая часть покрыта e2e за тегом) |
-| `internal/database`, `internal/repository` | 0% (тонкие обёртки над `pgx`, покрываются e2e) |
-| **Total** | **58.4%** |
+| `internal/config` | 83.9% |
+| `internal/runs` | 78.8% |
+| `internal/auth` | 78.4% |
+| `internal/llm` | 74.0% |
+| `cmd/api` | 36.4% |
+| `internal/database`, `internal/repository` | 0.0% |
+| **Total** | **57.0% statement coverage** |
 
-Доменная логика (сервисы, валидация, LLM, HTTP-обвязка) покрыта на 84–94%. Пакеты, работающие с реальной БД (`repository`, `database`, основной маршрутизатор `cmd/api`), сознательно покрываются `make test-e2e` через testcontainers — там запускается весь HTTP-стек поверх настоящего Postgres, поэтому unit-coverage по этим пакетам остаётся низким, но фактическое поведение проверено.
+`internal/api` и `internal/domain` не содержат исполняемой логики с тестами: это сгенерированные DTO и простые типы/ошибки, поэтому `go test` показывает для них `no test files`.
+
+Отдельно `make -C backend test-e2e` сейчас прогоняет 9 full-stack сценариев поверх реального Postgres. Эти тесты не влияют на процент из `coverage.out`, но именно они проверяют маршрутизатор, migrations и SQL-слой end-to-end.
 
 ### Frontend
 
 | Команда | Что делает |
 | --- | --- |
-| `pnpm -C frontend install` | Установка зависимостей (требует `pnpm install --frozen-lockfile` в CI) |
+| `pnpm -C frontend install` | Установка зависимостей |
 | `pnpm -C frontend lint` | ESLint |
 | `pnpm -C frontend typecheck` | `tsc -b --pretty false` |
-| `pnpm -C frontend test` | Vitest (jsdom + Testing Library) |
+| `pnpm -C frontend test` | Vitest без coverage (`vitest run --passWithNoTests`) |
 | `pnpm -C frontend build` | Production-сборка через Vite |
 
-Coverage:
+Команда для coverage:
 
 ```bash
-cd frontend
-pnpm exec vitest run --coverage
+pnpm -C frontend exec vitest run --coverage --passWithNoTests
 ```
 
-Текущее состояние: **6 test files, 23 tests passed**. Тесты сосредоточены на пограничных и легко-тестируемых модулях:
+Снимок frontend unit-coverage на 2026-05-13:
+
+| Метрика | Значение |
+| --- | --- |
+| Test files | 6 |
+| Tests | 24 |
+| Statements | 2.66% |
+| Branches | 27.95% |
+| Functions | 12.98% |
+| Lines | 2.66% |
+
+Тесты сейчас лежат в шести файлах:
 
 - `src/components/ProtectedRoute.test.tsx` — гард авторизации и ролей.
 - `src/components/RunStatusBadge.test.tsx` — маппинг статусов запусков.
-- `src/lib/forms/schemas/assistantSchema.test.ts` — Zod-схема формы ассистента.
-- `src/lib/forms/schemas/authSchema.test.ts` — Zod-схема формы входа и регистрации.
-- `src/lib/format.test.ts` — форматтеры дат/значений.
-- `src/lib/hooks/useDebouncedValue.test.ts` — дебаунс-хук.
+- `src/lib/forms/schemas/assistantSchema.test.ts` — Zod-схемы ассистента и категории.
+- `src/lib/forms/schemas/authSchema.test.ts` — Zod-схема входа и регистрации.
+- `src/lib/format.test.ts` — форматтеры дат и статусных значений.
+- `src/lib/hooks/useDebouncedValue.test.ts` — debounce-хук.
 
-Frontend unit-тесты сфокусированы на критичных и стабильных частях приложения:схемах валидации, форматтерах, хуках и небольших UI-компонентах. Крупные UI-страницы и большинство shadcn/ui-компонентов не покрываются unit-тестами напрямую и проверяются интеграционно во время ручного тестирования приложения и backend e2e-сценариев.
+Низкий aggregate coverage на frontend ожидаем: в общий объём кода для coverage входит вся SPA целиком, в том числе страницы, сгенерированная OpenAPI schema (`src/lib/api/schema.ts`), API client/query hooks и большая часть `shadcn/ui`-обёрток, которые unit-тестами сейчас почти не покрыты. Реально протестированные зоны — guards, схемы валидации, форматтеры, debounce-хук и небольшие UI-компоненты.
 
 ### Итоговое покрытие
 
-| Часть проекта | Coverage |
+| Часть проекта | Что реально измеряется |
 | --- | --- |
-| Backend (`go test -covermode=atomic ./...`) | **60.3%** |
-| Frontend (`vitest --coverage`) | **2.74% line coverage** |
+| Backend | **57.0% statement coverage** по `go test -covermode=atomic ./...` |
+| Frontend | **2.66% statements / 27.95% branches / 12.98% functions / 2.66% lines** по `vitest --coverage` |
+| Backend integration | 9 e2e-сценариев через `make -C backend test-e2e` с реальным Postgres; в line coverage не входят |
+| Infra / load-tests | Для `docker compose`, SQL-миграций и `load-tests/` общей line-coverage метрики нет; они проверяются отдельными runtime- и k6-сценариями |
 
-Backend покрывает основную доменную и HTTP-логику unit-тестами, а интеграционные сценарии дополнительно проверяются через e2e-тесты с реальным PostgreSQL и полным HTTP-стеком. Frontend unit-тесты сфокусированы на guards, схемах валидации, форматтерах и вспомогательных хуках.
+Backend unit-тесты хорошо покрывают сервисный слой, HTTP-обвязку и валидацию. Низкий процент у SQL-слоя и части маршрутизатора компенсируется e2e-сценариями поверх настоящей БД. Frontend coverage пока точечный и сфокусирован на самых стабильных и дешёвых для unit-тестирования модулях.
 
 ### CI
 
 GitHub Actions workflow `.github/workflows/ci.yml` повторяет локальные команды:
 
-- Job **Backend**: `make generate` + проверка `git diff` для OpenAPI Go-типов → `make build` → `golangci-lint` → `go test -race -coverprofile` → `make test-e2e` (testcontainers поднимает Postgres в Docker) → артефакт `backend-coverage`.
-- Job **Frontend**: `pnpm install --frozen-lockfile` → `pnpm gen:api` + проверка `git diff` для OpenAPI TypeScript-типов → `pnpm lint` → `pnpm typecheck` → `pnpm exec vitest run --coverage` → артефакт `frontend-coverage` → `pnpm build`.
+- Job **Backend**: `make generate` + проверка `git diff` для OpenAPI Go-типов → `make build` → `golangci-lint` → `go test -race -coverprofile` → `make test-e2e` → артефакт `backend-coverage`.
+- Job **Frontend**: `pnpm install --frozen-lockfile` → `pnpm gen:api` + проверка `git diff` для OpenAPI TypeScript-типов → `pnpm lint` → `pnpm typecheck` → `pnpm exec vitest run --coverage --passWithNoTests` → артефакт `frontend-coverage` → `pnpm build`.
 
 Запускается на push и PR в `main`/`master`. Concurrency-группа отменяет устаревшие раны для той же ветки.
 

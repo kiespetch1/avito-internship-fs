@@ -14,20 +14,14 @@ import (
 	"avito-internship-fs/internal/repository"
 )
 
-type fakeAssistantRepo struct {
-	getFn func(ctx context.Context, id uuid.UUID) (domain.Assistant, error)
-}
-
-func (f *fakeAssistantRepo) Get(ctx context.Context, id uuid.UUID) (domain.Assistant, error) {
-	return f.getFn(ctx, id)
-}
-
 type fakeRunRepo struct {
-	created      []domain.AssistantRun
-	successCall  *successArgs
-	failedCall   *failedArgs
-	feedbackCall *feedbackArgs
-	store        map[uuid.UUID]domain.AssistantRun
+	pendingAssistant *domain.Assistant
+	createPendingErr error
+	created          []domain.AssistantRun
+	successCall      *successArgs
+	failedCall       *failedArgs
+	feedbackCall     *feedbackArgs
+	store            map[uuid.UUID]domain.AssistantRun
 }
 
 type successArgs struct {
@@ -51,15 +45,35 @@ func newFakeRunRepo() *fakeRunRepo {
 	return &fakeRunRepo{store: make(map[uuid.UUID]domain.AssistantRun)}
 }
 
-func (r *fakeRunRepo) CreatePending(_ context.Context, assistantID, userID uuid.UUID, model, userPrompt string) (domain.AssistantRun, error) {
+func (r *fakeRunRepo) CreatePendingForActiveAssistant(_ context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.Assistant, domain.AssistantRun, error) {
+	if r.createPendingErr != nil {
+		return domain.Assistant{}, domain.AssistantRun{}, r.createPendingErr
+	}
+
+	assistant := domain.Assistant{
+		ID:           assistantID,
+		Model:        "gpt-mock",
+		SystemPrompt: "be nice",
+		IsActive:     true,
+	}
+	if r.pendingAssistant != nil {
+		assistant = *r.pendingAssistant
+		if assistant.ID == uuid.Nil {
+			assistant.ID = assistantID
+		}
+	}
+	if !assistant.IsActive {
+		return domain.Assistant{}, domain.AssistantRun{}, domain.ErrAssistantInactive
+	}
+
 	run := domain.AssistantRun{
-		ID: uuid.New(), AssistantID: assistantID, UserID: userID, Model: model,
+		ID: uuid.New(), AssistantID: assistantID, UserID: userID, Model: assistant.Model,
 		UserPrompt: userPrompt, Status: domain.RunPending, CreatedAt: time.Now(),
 	}
 	r.created = append(r.created, run)
 	r.store[run.ID] = run
 
-	return run, nil
+	return assistant, run, nil
 }
 
 func (r *fakeRunRepo) MarkSuccess(_ context.Context, id uuid.UUID, output string, tokensIn, tokensOut, latencyMs int, finishReason string) error {
@@ -145,7 +159,6 @@ func TestRunHappyPath(t *testing.T) {
 	a := activeAssistant()
 	runs := newFakeRunRepo()
 	svc := NewRunService(
-		&fakeAssistantRepo{getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil }},
 		runs,
 		&fakeProvider{resp: llm.Response{Output: "hi", TokensIn: 1, TokensOut: 2, LatencyMs: 0, FinishReason: "stop"}},
 		time.Second,
@@ -170,7 +183,6 @@ func TestRunPersistsRowEvenOnProviderError(t *testing.T) {
 	a := activeAssistant()
 	runs := newFakeRunRepo()
 	svc := NewRunService(
-		&fakeAssistantRepo{getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil }},
 		runs,
 		&fakeProvider{err: errors.New("boom")},
 		time.Second,
@@ -195,8 +207,8 @@ func TestRunInactiveDoesNotCreateRow(t *testing.T) {
 	a := activeAssistant()
 	a.IsActive = false
 	runs := newFakeRunRepo()
+	runs.pendingAssistant = &a
 	svc := NewRunService(
-		&fakeAssistantRepo{getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil }},
 		runs,
 		&fakeProvider{},
 		time.Second,
@@ -212,11 +224,10 @@ func TestRunInactiveDoesNotCreateRow(t *testing.T) {
 }
 
 func TestRunNotFound(t *testing.T) {
+	runs := newFakeRunRepo()
+	runs.createPendingErr = domain.ErrAssistantNotFound
 	svc := NewRunService(
-		&fakeAssistantRepo{getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) {
-			return domain.Assistant{}, domain.ErrAssistantNotFound
-		}},
-		newFakeRunRepo(),
+		runs,
 		&fakeProvider{},
 		time.Second,
 	)
@@ -232,7 +243,6 @@ func TestRunStreamHappyPath(t *testing.T) {
 	chunks := make([]string, 0, 2)
 	var created *domain.AssistantRun
 	svc := NewRunService(
-		&fakeAssistantRepo{getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil }},
 		runs,
 		&fakeProvider{
 			resp:         llm.Response{Output: "hello world", TokensIn: 3, TokensOut: 4, LatencyMs: 0, FinishReason: "stop"},
@@ -267,7 +277,6 @@ func TestRunStreamPersistsFailure(t *testing.T) {
 	a := activeAssistant()
 	runs := newFakeRunRepo()
 	svc := NewRunService(
-		&fakeAssistantRepo{getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil }},
 		runs,
 		&fakeProvider{err: errors.New("boom"), streamChunks: []string{"partial"}},
 		time.Second,
@@ -299,7 +308,6 @@ func TestRunStreamUsesCallerContext(t *testing.T) {
 	defer cancel()
 	errNotCanceled := errors.New("stream context was not canceled")
 	svc := NewRunService(
-		&fakeAssistantRepo{getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil }},
 		runs,
 		&fakeProvider{
 			streamFn: func(ctx context.Context, _ llm.Request, _ func(llm.StreamChunk)) (llm.Response, error) {
@@ -337,7 +345,7 @@ func TestSetFeedbackAllowsRunOwner(t *testing.T) {
 		ID: uuid.New(), UserID: userID, Status: domain.RunSuccess, CreatedAt: time.Now(),
 	}
 	runs.store[run.ID] = run
-	svc := NewRunService(&fakeAssistantRepo{}, runs, &fakeProvider{}, time.Second)
+	svc := NewRunService(runs, &fakeProvider{}, time.Second)
 
 	updated, err := svc.SetFeedback(context.Background(), run.ID, userID, domain.RunFeedbackLike)
 	if err != nil {
@@ -357,7 +365,7 @@ func TestSetFeedbackRejectsOtherUser(t *testing.T) {
 		ID: uuid.New(), UserID: uuid.New(), Status: domain.RunSuccess, CreatedAt: time.Now(),
 	}
 	runs.store[run.ID] = run
-	svc := NewRunService(&fakeAssistantRepo{}, runs, &fakeProvider{}, time.Second)
+	svc := NewRunService(runs, &fakeProvider{}, time.Second)
 
 	_, err := svc.SetFeedback(context.Background(), run.ID, uuid.New(), domain.RunFeedbackDislike)
 	if !errors.Is(err, domain.ErrRunForbidden) {

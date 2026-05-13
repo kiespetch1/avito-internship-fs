@@ -227,6 +227,17 @@ func (r *AssistantRepository) Update(ctx context.Context, in domain.Assistant) (
 }
 
 func (r *AssistantRepository) List(ctx context.Context, f AssistantListFilter) ([]domain.Assistant, int, error) {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelRepeatableRead,
+		ReadOnly:  true,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("begin list assistants: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
 	conds := make([]string, 0, 4)
 	args := make([]any, 0, 6)
 
@@ -271,7 +282,7 @@ func (r *AssistantRepository) List(ctx context.Context, f AssistantListFilter) (
 	countArgs := append([]any(nil), args...)
 	countQ := "SELECT COUNT(*) FROM assistants a " + where
 	var total int
-	if err := r.db.QueryRowContext(ctx, countQ, countArgs...).Scan(&total); err != nil {
+	if err := tx.QueryRowContext(ctx, countQ, countArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count assistants: %w", err)
 	}
 
@@ -295,7 +306,7 @@ func (r *AssistantRepository) List(ctx context.Context, f AssistantListFilter) (
 		ORDER BY a.created_at DESC, a.id
 		LIMIT $%d OFFSET $%d`, assistantSelectColumns(favoriteExpr), where, len(listArgs)-1, len(listArgs))
 
-	rows, err := r.db.QueryContext(ctx, listQ, listArgs...)
+	rows, err := tx.QueryContext(ctx, listQ, listArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query assistants: %w", err)
 	}
@@ -311,6 +322,9 @@ func (r *AssistantRepository) List(ctx context.Context, f AssistantListFilter) (
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("iterate assistants: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, 0, fmt.Errorf("commit list assistants: %w", err)
 	}
 
 	return out, total, nil
