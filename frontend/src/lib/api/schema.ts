@@ -534,6 +534,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs/{runId}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Оценить или сменить оценку ответа ассистента
+         * @description Пользователь может оценивать только свои запуски.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Идентификатор запуска */
+                    runId: components["parameters"]["RunIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RunFeedbackUpsertIn"];
+                };
+            };
+            responses: {
+                /** @description Запуск с обновлённой оценкой */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantRun"];
+                    };
+                };
+                /** @description Некорректный запрос */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Запуск принадлежит другому пользователю */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Запуск не найден */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/my": {
         parameters: {
             query?: never;
@@ -731,6 +804,15 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "pending" | "success" | "failed";
+        /**
+         * Format: int32
+         * @description -1 — дизлайк, 1 — лайк.
+         * @enum {integer}
+         */
+        RunFeedbackRating: -1 | 1;
+        RunFeedbackUpsertIn: {
+            rating: components["schemas"]["RunFeedbackRating"];
+        };
         AssistantRun: {
             /** Format: uuid */
             id: string;
@@ -747,6 +829,7 @@ export interface components {
             output?: string | null;
             status: components["schemas"]["RunStatus"];
             error?: string | null;
+            feedbackRating?: components["schemas"]["RunFeedbackRating"] | null;
             /** Format: date-time */
             createdAt?: string | null;
         };
@@ -768,6 +851,8 @@ export interface components {
         CategoryIdPath: string;
         /** @description Идентификатор ассистента */
         AssistantIdPath: string;
+        /** @description Идентификатор запуска */
+        RunIdPath: string;
     };
     requestBodies: never;
     headers: never;

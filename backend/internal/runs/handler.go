@@ -22,6 +22,7 @@ type Service interface {
 	Run(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.AssistantRun, error)
 	RunStream(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string, callbacks service.RunStreamCallbacks) (domain.AssistantRun, error)
 	List(ctx context.Context, in service.RunListInput) ([]domain.AssistantRun, int, error)
+	SetFeedback(ctx context.Context, runID, userID uuid.UUID, rating domain.RunFeedbackRating) (domain.AssistantRun, error)
 }
 
 type Handler struct {
@@ -220,6 +221,50 @@ func (h *Handler) AdminRuns(w http.ResponseWriter, r *http.Request) {
 	h.writeList(w, r.Context(), in)
 }
 
+func (h *Handler) SetFeedback(w http.ResponseWriter, r *http.Request) {
+	rawID := r.PathValue("runId")
+	runID, err := uuid.Parse(rawID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "invalid runId")
+		return
+	}
+
+	principal, ok := auth.PrincipalFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.CodeUnauthorized, "not authenticated")
+		return
+	}
+
+	var req api.PutRunsRunIdFeedbackJSONRequestBody
+	if !httpx.DecodeJSON(w, r, &req) {
+		return
+	}
+
+	rating := domain.RunFeedbackRating(req.Rating)
+	switch rating {
+	case domain.RunFeedbackLike, domain.RunFeedbackDislike:
+	default:
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "rating must be -1 or 1")
+		return
+	}
+
+	run, err := h.svc.SetFeedback(r.Context(), runID, principal.UserID, rating)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrRunNotFound):
+			httpx.WriteError(w, http.StatusNotFound, httpx.CodeNotFound, "run not found")
+		case errors.Is(err, domain.ErrRunForbidden):
+			httpx.WriteError(w, http.StatusForbidden, httpx.CodeForbidden, "run belongs to another user")
+		default:
+			httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternalError, "failed to save feedback")
+		}
+
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, toAPIRun(run))
+}
+
 func (h *Handler) writeList(w http.ResponseWriter, ctx context.Context, in service.RunListInput) {
 	items, total, err := h.svc.List(ctx, in)
 	if err != nil {
@@ -319,6 +364,10 @@ func toAPIRun(r domain.AssistantRun) api.AssistantRun {
 	}
 	if r.CategoryID != nil {
 		out.CategoryId = new(*r.CategoryID)
+	}
+	if r.FeedbackRating != nil {
+		rating := api.RunFeedbackRating(*r.FeedbackRating)
+		out.FeedbackRating = &rating
 	}
 
 	return out

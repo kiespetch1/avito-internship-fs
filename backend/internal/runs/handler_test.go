@@ -20,8 +20,9 @@ import (
 )
 
 type fakeService struct {
-	fn       func(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.AssistantRun, error)
-	streamFn func(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string, callbacks service.RunStreamCallbacks) (domain.AssistantRun, error)
+	fn         func(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.AssistantRun, error)
+	streamFn   func(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string, callbacks service.RunStreamCallbacks) (domain.AssistantRun, error)
+	feedbackFn func(ctx context.Context, runID, userID uuid.UUID, rating domain.RunFeedbackRating) (domain.AssistantRun, error)
 }
 
 func (f *fakeService) Run(ctx context.Context, a, u uuid.UUID, p string) (domain.AssistantRun, error) {
@@ -38,6 +39,10 @@ func (f *fakeService) RunStream(ctx context.Context, a, u uuid.UUID, p string, c
 
 func (f *fakeService) List(_ context.Context, _ service.RunListInput) ([]domain.AssistantRun, int, error) {
 	return nil, 0, nil
+}
+
+func (f *fakeService) SetFeedback(ctx context.Context, runID, userID uuid.UUID, rating domain.RunFeedbackRating) (domain.AssistantRun, error) {
+	return f.feedbackFn(ctx, runID, userID, rating)
 }
 
 type failingStreamWriter struct {
@@ -172,6 +177,72 @@ func TestRunHandlerInvalidAssistantID(t *testing.T) {
 	h.Run(rr, req.WithContext(ctx))
 
 	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: %d", rr.Code)
+	}
+}
+
+func TestSetFeedbackHandlerSuccess(t *testing.T) {
+	runID := uuid.New()
+	userID := uuid.New()
+	rating := domain.RunFeedbackLike
+	h := NewHandler(&fakeService{
+		feedbackFn: func(_ context.Context, gotRunID, gotUserID uuid.UUID, gotRating domain.RunFeedbackRating) (domain.AssistantRun, error) {
+			if gotRunID != runID || gotUserID != userID || gotRating != rating {
+				t.Fatalf("args: %v %v %d", gotRunID, gotUserID, gotRating)
+			}
+
+			return domain.AssistantRun{
+				ID: runID, UserID: userID, Status: domain.RunSuccess, FeedbackRating: &rating, CreatedAt: time.Now(),
+			}, nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodPut, "/runs/"+runID.String()+"/feedback", strings.NewReader(`{"rating":1}`))
+	req.SetPathValue("runId", runID.String())
+	ctx := auth.WithPrincipalForTest(req.Context(), auth.Principal{UserID: userID, Role: auth.RoleUser})
+	rr := httptest.NewRecorder()
+	h.SetFeedback(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	var got api.AssistantRun
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.FeedbackRating == nil || *got.FeedbackRating != api.N1 {
+		t.Fatalf("feedbackRating: %+v", got.FeedbackRating)
+	}
+}
+
+func TestSetFeedbackHandlerRejectsInvalidRating(t *testing.T) {
+	h := NewHandler(&fakeService{feedbackFn: func(context.Context, uuid.UUID, uuid.UUID, domain.RunFeedbackRating) (domain.AssistantRun, error) {
+		t.Fatal("service must not be called")
+		return domain.AssistantRun{}, nil
+	}})
+	runID := uuid.New()
+	req := httptest.NewRequest(http.MethodPut, "/runs/"+runID.String()+"/feedback", strings.NewReader(`{"rating":0}`))
+	req.SetPathValue("runId", runID.String())
+	ctx := auth.WithPrincipalForTest(req.Context(), auth.Principal{UserID: uuid.New(), Role: auth.RoleUser})
+	rr := httptest.NewRecorder()
+	h.SetFeedback(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: %d", rr.Code)
+	}
+}
+
+func TestSetFeedbackHandlerRejectsOtherUserRun(t *testing.T) {
+	h := NewHandler(&fakeService{feedbackFn: func(context.Context, uuid.UUID, uuid.UUID, domain.RunFeedbackRating) (domain.AssistantRun, error) {
+		return domain.AssistantRun{}, domain.ErrRunForbidden
+	}})
+	runID := uuid.New()
+	req := httptest.NewRequest(http.MethodPut, "/runs/"+runID.String()+"/feedback", strings.NewReader(`{"rating":1}`))
+	req.SetPathValue("runId", runID.String())
+	ctx := auth.WithPrincipalForTest(req.Context(), auth.Principal{UserID: uuid.New(), Role: auth.RoleUser})
+	rr := httptest.NewRecorder()
+	h.SetFeedback(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status: %d", rr.Code)
 	}
 }

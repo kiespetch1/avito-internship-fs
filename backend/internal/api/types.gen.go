@@ -32,6 +32,12 @@ const (
 	RoleUser  Role = "user"
 )
 
+// Defines values for RunFeedbackRating.
+const (
+	Minus1 RunFeedbackRating = -1
+	N1     RunFeedbackRating = 1
+)
+
 // Defines values for RunStatus.
 const (
 	Failed  RunStatus = "failed"
@@ -69,15 +75,16 @@ type AssistantCreateIn struct {
 
 // AssistantRun defines model for AssistantRun.
 type AssistantRun struct {
-	AssistantId   openapi_types.UUID  `json:"assistantId"`
-	AssistantName *string             `json:"assistantName"`
-	CategoryId    *openapi_types.UUID `json:"categoryId"`
-	CategoryName  *string             `json:"categoryName"`
-	CreatedAt     *time.Time          `json:"createdAt"`
-	Error         *string             `json:"error"`
-	Id            openapi_types.UUID  `json:"id"`
-	Model         string              `json:"model"`
-	Output        *string             `json:"output"`
+	AssistantId    openapi_types.UUID  `json:"assistantId"`
+	AssistantName  *string             `json:"assistantName"`
+	CategoryId     *openapi_types.UUID `json:"categoryId"`
+	CategoryName   *string             `json:"categoryName"`
+	CreatedAt      *time.Time          `json:"createdAt"`
+	Error          *string             `json:"error"`
+	FeedbackRating *RunFeedbackRating  `json:"feedbackRating"`
+	Id             openapi_types.UUID  `json:"id"`
+	Model          string              `json:"model"`
+	Output         *string             `json:"output"`
 
 	// Status pending — запуск создан, но ответ ещё не получен; success — запуск завершился успешно; failed — запуск завершился ошибкой.
 	Status     RunStatus          `json:"status"`
@@ -136,6 +143,15 @@ type Pagination struct {
 // Role defines model for Role.
 type Role string
 
+// RunFeedbackRating -1 — дизлайк, 1 — лайк.
+type RunFeedbackRating int32
+
+// RunFeedbackUpsertIn defines model for RunFeedbackUpsertIn.
+type RunFeedbackUpsertIn struct {
+	// Rating -1 — дизлайк, 1 — лайк.
+	Rating RunFeedbackRating `json:"rating"`
+}
+
 // RunStatus pending — запуск создан, но ответ ещё не получен; success — запуск завершился успешно; failed — запуск завершился ошибкой.
 type RunStatus string
 
@@ -156,6 +172,9 @@ type User struct {
 
 // AssistantIdPath defines model for AssistantIdPath.
 type AssistantIdPath = openapi_types.UUID
+
+// RunIdPath defines model for RunIdPath.
+type RunIdPath = openapi_types.UUID
 
 // GetAdminRunsParams defines parameters for GetAdminRuns.
 type GetAdminRunsParams struct {
@@ -208,3 +227,6 @@ type PostCategoriesJSONRequestBody = CategoryCreateIn
 
 // PostDummyLoginJSONRequestBody defines body for PostDummyLogin for application/json ContentType.
 type PostDummyLoginJSONRequestBody PostDummyLoginJSONBody
+
+// PutRunsRunIdFeedbackJSONRequestBody defines body for PutRunsRunIdFeedback for application/json ContentType.
+type PutRunsRunIdFeedbackJSONRequestBody = RunFeedbackUpsertIn

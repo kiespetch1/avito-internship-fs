@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { AlertCircle, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { QueryStateBoundary } from "@/components/QueryStateBoundary";
+import { RunFeedbackControl } from "@/components/RunFeedbackControl";
 import { RunStatusBadge } from "@/components/RunStatusBadge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -196,9 +197,16 @@ export function AssistantDetailPage() {
                       </AlertDescription>
                     </Alert>
                   ) : (
-                    <div className="rounded-2xl bg-secondary p-4 text-[0.9375rem] leading-relaxed whitespace-pre-wrap">
-                      {lastRun.output ||
-                        (lastRun.status === "pending" ? "Генерация началась..." : "—")}
+                    <div className="space-y-2">
+                      <div className="rounded-2xl bg-secondary p-4 text-[0.9375rem] leading-relaxed whitespace-pre-wrap">
+                        {lastRun.output ||
+                          (lastRun.status === "pending" ? "Генерация началась..." : "—")}
+                      </div>
+                      <RunFeedbackControl
+                        run={lastRun}
+                        currentUserId={user?.id}
+                        onRunUpdated={setLastRun}
+                      />
                     </div>
                   )}
                 </div>

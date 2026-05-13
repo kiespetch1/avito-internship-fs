@@ -21,6 +21,7 @@ type RunRepo interface {
 	MarkSuccess(ctx context.Context, id uuid.UUID, output string, tokensIn, tokensOut, latencyMs int, finishReason string) error
 	MarkFailed(ctx context.Context, id uuid.UUID, errMsg string, latencyMs int) error
 	GetByID(ctx context.Context, id uuid.UUID) (domain.AssistantRun, error)
+	UpsertFeedback(ctx context.Context, runID uuid.UUID, rating domain.RunFeedbackRating) (domain.AssistantRun, error)
 	List(ctx context.Context, f repository.RunListFilter) ([]domain.AssistantRun, int, error)
 }
 
@@ -47,6 +48,18 @@ func (s *RunService) List(ctx context.Context, in RunListInput) ([]domain.Assist
 		Limit:       pageSize,
 		Offset:      (page - 1) * pageSize,
 	})
+}
+
+func (s *RunService) SetFeedback(ctx context.Context, runID, userID uuid.UUID, rating domain.RunFeedbackRating) (domain.AssistantRun, error) {
+	run, err := s.runs.GetByID(ctx, runID)
+	if err != nil {
+		return domain.AssistantRun{}, err
+	}
+	if run.UserID != userID {
+		return domain.AssistantRun{}, domain.ErrRunForbidden
+	}
+
+	return s.runs.UpsertFeedback(ctx, runID, rating)
 }
 
 type RunService struct {

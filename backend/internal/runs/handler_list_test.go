@@ -39,6 +39,10 @@ func (f *fakeListService) List(_ context.Context, in service.RunListInput) ([]do
 	return f.items, f.total, nil
 }
 
+func (f *fakeListService) SetFeedback(context.Context, uuid.UUID, uuid.UUID, domain.RunFeedbackRating) (domain.AssistantRun, error) {
+	return domain.AssistantRun{}, nil
+}
+
 func authedListRequest(method, path string, principal auth.Principal) *http.Request {
 	req := httptest.NewRequest(method, path, nil)
 	ctx := auth.WithPrincipalForTest(req.Context(), principal)

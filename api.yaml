@@ -38,6 +38,14 @@ components:
         type: string
         format: uuid
       description: Идентификатор ассистента
+    RunIdPath:
+      name: runId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Идентификатор запуска
 
   schemas:
     ErrorResponse:
@@ -241,6 +249,19 @@ components:
         success — запуск завершился успешно;
         failed — запуск завершился ошибкой.
 
+    RunFeedbackRating:
+      type: integer
+      format: int32
+      enum: [-1, 1]
+      description: -1 — дизлайк, 1 — лайк.
+
+    RunFeedbackUpsertIn:
+      type: object
+      required: [rating]
+      properties:
+        rating:
+          $ref: "#/components/schemas/RunFeedbackRating"
+
     AssistantRun:
       type: object
       required: [id, assistantId, userId, model, userPrompt, status]
@@ -275,6 +296,10 @@ components:
           $ref: "#/components/schemas/RunStatus"
         error:
           type: string
+          nullable: true
+        feedbackRating:
+          allOf:
+            - $ref: "#/components/schemas/RunFeedbackRating"
           nullable: true
         createdAt:
           type: string
@@ -648,6 +673,47 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "502":
           description: Ошибка LLM-провайдера до старта SSE-потока
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /runs/{runId}/feedback:
+    put:
+      tags: [Runs]
+      summary: Оценить или сменить оценку ответа ассистента
+      description: Пользователь может оценивать только свои запуски.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunFeedbackUpsertIn"
+      responses:
+        "200":
+          description: Запуск с обновлённой оценкой
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantRun"
+        "400":
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Запуск принадлежит другому пользователю
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Запуск не найден
           content:
             application/json:
               schema:

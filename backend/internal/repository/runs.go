@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -81,7 +82,31 @@ func (r *RunRepository) MarkFailed(ctx context.Context, id uuid.UUID, errMsg str
 const runSelectColumns = `
 	r.id, r.assistant_id, a.name, a.category_id, c.name,
 	r.user_id, r.model, r.user_prompt, r.output, r.status, r.error,
-	r.tokens_in, r.tokens_out, r.latency_ms, r.finish_reason, r.created_at`
+	r.tokens_in, r.tokens_out, r.latency_ms, r.finish_reason, r.created_at,
+	rf.rating`
+
+func scanRun(s interface{ Scan(...any) error }, run *domain.AssistantRun) error {
+	var status string
+	var feedbackRating sql.NullInt16
+	err := s.Scan(
+		&run.ID, &run.AssistantID, &run.AssistantName, &run.CategoryID, &run.CategoryName,
+		&run.UserID, &run.Model, &run.UserPrompt, &run.Output, &status, &run.Error,
+		&run.TokensIn, &run.TokensOut, &run.LatencyMs, &run.FinishReason, &run.CreatedAt,
+		&feedbackRating,
+	)
+	if err != nil {
+		return err
+	}
+
+	run.Status = domain.RunStatus(status)
+	if feedbackRating.Valid {
+		run.FeedbackRating = new(domain.RunFeedbackRating(feedbackRating.Int16))
+	} else {
+		run.FeedbackRating = nil
+	}
+
+	return nil
+}
 
 func (r *RunRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.AssistantRun, error) {
 	q := `
@@ -89,21 +114,34 @@ func (r *RunRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Assis
 		FROM assistant_runs r
 		JOIN assistants a ON a.id = r.assistant_id
 		JOIN categories c ON c.id = a.category_id
+		LEFT JOIN run_feedback rf ON rf.run_id = r.id
 		WHERE r.id = $1`
 
 	var run domain.AssistantRun
-	var status string
-	err := r.db.QueryRowContext(ctx, q, id).Scan(
-		&run.ID, &run.AssistantID, &run.AssistantName, &run.CategoryID, &run.CategoryName,
-		&run.UserID, &run.Model, &run.UserPrompt, &run.Output, &status, &run.Error,
-		&run.TokensIn, &run.TokensOut, &run.LatencyMs, &run.FinishReason, &run.CreatedAt,
-	)
-	if err != nil {
+	if err := scanRun(r.db.QueryRowContext(ctx, q, id), &run); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.AssistantRun{}, domain.ErrRunNotFound
+		}
+
 		return domain.AssistantRun{}, fmt.Errorf("get run: %w", err)
 	}
-	run.Status = domain.RunStatus(status)
 
 	return run, nil
+}
+
+func (r *RunRepository) UpsertFeedback(ctx context.Context, runID uuid.UUID, rating domain.RunFeedbackRating) (domain.AssistantRun, error) {
+	const q = `
+		INSERT INTO run_feedback (run_id, rating)
+		VALUES ($1, $2)
+		ON CONFLICT (run_id) DO UPDATE SET rating = EXCLUDED.rating
+		RETURNING run_id`
+
+	var id uuid.UUID
+	if err := r.db.QueryRowContext(ctx, q, runID, int(rating)).Scan(&id); err != nil {
+		return domain.AssistantRun{}, fmt.Errorf("upsert run feedback: %w", err)
+	}
+
+	return r.GetByID(ctx, id)
 }
 
 func (r *RunRepository) List(ctx context.Context, f RunListFilter) ([]domain.AssistantRun, int, error) {
@@ -140,6 +178,7 @@ func (r *RunRepository) List(ctx context.Context, f RunListFilter) ([]domain.Ass
 		FROM assistant_runs r
 		JOIN assistants a ON a.id = r.assistant_id
 		JOIN categories c ON c.id = a.category_id
+		LEFT JOIN run_feedback rf ON rf.run_id = r.id
 		%s
 		ORDER BY r.created_at DESC, r.id
 		LIMIT $%d OFFSET $%d`, runSelectColumns, where, len(args)-1, len(args))
@@ -153,15 +192,9 @@ func (r *RunRepository) List(ctx context.Context, f RunListFilter) ([]domain.Ass
 	out := make([]domain.AssistantRun, 0)
 	for rows.Next() {
 		var run domain.AssistantRun
-		var status string
-		if err := rows.Scan(
-			&run.ID, &run.AssistantID, &run.AssistantName, &run.CategoryID, &run.CategoryName,
-			&run.UserID, &run.Model, &run.UserPrompt, &run.Output, &status, &run.Error,
-			&run.TokensIn, &run.TokensOut, &run.LatencyMs, &run.FinishReason, &run.CreatedAt,
-		); err != nil {
+		if err := scanRun(rows, &run); err != nil {
 			return nil, 0, fmt.Errorf("scan run: %w", err)
 		}
-		run.Status = domain.RunStatus(status)
 		out = append(out, run)
 	}
 	if err := rows.Err(); err != nil {

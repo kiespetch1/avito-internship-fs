@@ -18,6 +18,8 @@ export type AssistantRun = Schemas["AssistantRun"];
 export type AssistantRunCreateIn = Schemas["AssistantRunCreateIn"];
 export type AssistantRunStreamDelta = Schemas["AssistantRunStreamDelta"];
 export type AssistantRunStreamFailure = Schemas["AssistantRunStreamFailure"];
+export type RunFeedbackRating = Schemas["RunFeedbackRating"];
+export type RunFeedbackUpsertIn = Schemas["RunFeedbackUpsertIn"];
 export type RunStatus = Schemas["RunStatus"];
 export type Pagination = Schemas["Pagination"];
 
@@ -170,4 +172,9 @@ export const runs = {
     apiRequest<RunsList>("/runs/my", { query, signal }),
   admin: (query: AdminRunsQuery = {}, signal?: AbortSignal) =>
     apiRequest<RunsList>("/admin/runs", { query, signal }),
+  setFeedback: (runId: string, input: RunFeedbackUpsertIn) =>
+    apiRequest<AssistantRun>(`/runs/${runId}/feedback`, {
+      method: "PUT",
+      body: input,
+    }),
 };

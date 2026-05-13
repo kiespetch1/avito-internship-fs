@@ -8,4 +8,7 @@ var (
 
 	ErrAssistantNotFound = errors.New("assistant not found")
 	ErrAssistantInactive = errors.New("assistant is not active")
+
+	ErrRunNotFound  = errors.New("run not found")
+	ErrRunForbidden = errors.New("run belongs to another user")
 )

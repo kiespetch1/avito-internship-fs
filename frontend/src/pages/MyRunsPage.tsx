@@ -2,17 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { PaginationControl } from "@/components/PaginationControl";
 import { QueryStateBoundary } from "@/components/QueryStateBoundary";
+import { RunDetailDialog } from "@/components/RunDetailDialog";
 import { RunStatusBadge } from "@/components/RunStatusBadge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -30,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { type AssistantRun, type RunStatus, runs as runsApi } from "@/lib/api";
 import { qk } from "@/lib/api/queryKeys";
+import { useAuth } from "@/lib/auth";
 import { formatDateTime, runStatusLabel } from "@/lib/format";
 import { enumParam, intParam, useSearchParamsState } from "@/lib/hooks/useSearchParamsState";
 
@@ -50,6 +43,7 @@ const filtersSchema = {
 export function MyRunsPage() {
   const [filters, setFilters] = useSearchParamsState(filtersSchema);
   const [openRun, setOpenRun] = useState<AssistantRun | null>(null);
+  const { user } = useAuth();
 
   const listQuery = {
     status: filters.status ?? undefined,
@@ -155,50 +149,12 @@ export function MyRunsPage() {
         )}
       </QueryStateBoundary>
 
-      <RunDetailDialog run={openRun} onClose={() => setOpenRun(null)} />
+      <RunDetailDialog
+        run={openRun}
+        currentUserId={user?.id}
+        onRunUpdated={setOpenRun}
+        onClose={() => setOpenRun(null)}
+      />
     </section>
-  );
-}
-
-function RunDetailDialog({ run, onClose }: { run: AssistantRun | null; onClose: () => void }) {
-  return (
-    <Dialog open={run !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] grid-rows-none flex-col overflow-hidden sm:max-w-2xl">
-        {run && (
-          <>
-            <DialogHeader className="shrink-0 pr-8">
-              <DialogTitle className="flex items-center gap-2">
-                {run.assistantName ?? "Запуск"}
-                <RunStatusBadge status={run.status} />
-              </DialogTitle>
-              <DialogDescription>{formatDateTime(run.createdAt)}</DialogDescription>
-            </DialogHeader>
-
-            <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
-              <div className="space-y-2">
-                <Label className="text-[0.9375rem] font-bold">Запрос пользователя</Label>
-                <div className="rounded-2xl bg-secondary p-4 text-[0.9375rem] leading-relaxed whitespace-pre-wrap">
-                  {run.userPrompt}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[0.9375rem] font-bold">
-                  {run.status === "failed" ? "Ошибка" : "Ответ"}
-                </Label>
-                <div className="rounded-2xl bg-secondary p-4 text-[0.9375rem] leading-relaxed whitespace-pre-wrap">
-                  {run.status === "failed" ? (run.error ?? "—") : (run.output ?? "—")}
-                </div>
-              </div>
-            </div>
-
-            <DialogFooter className="shrink-0">
-              <Button variant="black" size="lg" onClick={onClose}>
-                Закрыть
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
   );
 }

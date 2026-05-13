@@ -23,10 +23,11 @@ func (f *fakeAssistantRepo) Get(ctx context.Context, id uuid.UUID) (domain.Assis
 }
 
 type fakeRunRepo struct {
-	created     []domain.AssistantRun
-	successCall *successArgs
-	failedCall  *failedArgs
-	store       map[uuid.UUID]domain.AssistantRun
+	created      []domain.AssistantRun
+	successCall  *successArgs
+	failedCall   *failedArgs
+	feedbackCall *feedbackArgs
+	store        map[uuid.UUID]domain.AssistantRun
 }
 
 type successArgs struct {
@@ -39,6 +40,11 @@ type failedArgs struct {
 	id        uuid.UUID
 	errMsg    string
 	latencyMs int
+}
+
+type feedbackArgs struct {
+	runID  uuid.UUID
+	rating domain.RunFeedbackRating
 }
 
 func newFakeRunRepo() *fakeRunRepo {
@@ -88,8 +94,20 @@ func (r *fakeRunRepo) List(_ context.Context, _ repository.RunListFilter) ([]dom
 func (r *fakeRunRepo) GetByID(_ context.Context, id uuid.UUID) (domain.AssistantRun, error) {
 	run, ok := r.store[id]
 	if !ok {
-		return domain.AssistantRun{}, errors.New("not found")
+		return domain.AssistantRun{}, domain.ErrRunNotFound
 	}
+
+	return run, nil
+}
+
+func (r *fakeRunRepo) UpsertFeedback(_ context.Context, runID uuid.UUID, rating domain.RunFeedbackRating) (domain.AssistantRun, error) {
+	r.feedbackCall = &feedbackArgs{runID: runID, rating: rating}
+	run, ok := r.store[runID]
+	if !ok {
+		return domain.AssistantRun{}, domain.ErrRunNotFound
+	}
+	run.FeedbackRating = &rating
+	r.store[runID] = run
 
 	return run, nil
 }
@@ -309,5 +327,43 @@ func TestRunStreamUsesCallerContext(t *testing.T) {
 	}
 	if runs.failedCall == nil {
 		t.Fatal("MarkFailed not called")
+	}
+}
+
+func TestSetFeedbackAllowsRunOwner(t *testing.T) {
+	runs := newFakeRunRepo()
+	userID := uuid.New()
+	run := domain.AssistantRun{
+		ID: uuid.New(), UserID: userID, Status: domain.RunSuccess, CreatedAt: time.Now(),
+	}
+	runs.store[run.ID] = run
+	svc := NewRunService(&fakeAssistantRepo{}, runs, &fakeProvider{}, time.Second)
+
+	updated, err := svc.SetFeedback(context.Background(), run.ID, userID, domain.RunFeedbackLike)
+	if err != nil {
+		t.Fatalf("set feedback: %v", err)
+	}
+	if runs.feedbackCall == nil || runs.feedbackCall.rating != domain.RunFeedbackLike {
+		t.Fatalf("feedback call: %+v", runs.feedbackCall)
+	}
+	if updated.FeedbackRating == nil || *updated.FeedbackRating != domain.RunFeedbackLike {
+		t.Fatalf("feedback rating: %+v", updated.FeedbackRating)
+	}
+}
+
+func TestSetFeedbackRejectsOtherUser(t *testing.T) {
+	runs := newFakeRunRepo()
+	run := domain.AssistantRun{
+		ID: uuid.New(), UserID: uuid.New(), Status: domain.RunSuccess, CreatedAt: time.Now(),
+	}
+	runs.store[run.ID] = run
+	svc := NewRunService(&fakeAssistantRepo{}, runs, &fakeProvider{}, time.Second)
+
+	_, err := svc.SetFeedback(context.Background(), run.ID, uuid.New(), domain.RunFeedbackDislike)
+	if !errors.Is(err, domain.ErrRunForbidden) {
+		t.Fatalf("err: %v", err)
+	}
+	if runs.feedbackCall != nil {
+		t.Fatalf("feedback must not be upserted for another user: %+v", runs.feedbackCall)
 	}
 }
