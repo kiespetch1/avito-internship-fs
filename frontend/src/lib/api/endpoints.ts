@@ -1,4 +1,10 @@
-import { apiRequest, type Schemas } from "./client";
+import {
+  ApiError,
+  apiRequest,
+  apiStreamRequest,
+  type ApiErrorCode,
+  type Schemas,
+} from "./client";
 
 export type Role = Schemas["Role"];
 export type User = Schemas["User"];
@@ -10,11 +16,20 @@ export type AssistantCreateIn = Schemas["AssistantCreateIn"];
 export type AssistantUpdateIn = Schemas["AssistantUpdateIn"];
 export type AssistantRun = Schemas["AssistantRun"];
 export type AssistantRunCreateIn = Schemas["AssistantRunCreateIn"];
+export type AssistantRunStreamDelta = Schemas["AssistantRunStreamDelta"];
+export type AssistantRunStreamFailure = Schemas["AssistantRunStreamFailure"];
 export type RunStatus = Schemas["RunStatus"];
 export type Pagination = Schemas["Pagination"];
 
 export type AssistantsList = { assistants: Assistant[]; pagination: Pagination };
 export type RunsList = { runs: AssistantRun[]; pagination: Pagination };
+
+export type RunStreamCallbacks = {
+  onRun?: (run: AssistantRun) => void;
+  onDelta?: (delta: string) => void;
+  onDone?: (run: AssistantRun) => void;
+  onFailed?: (failure: AssistantRunStreamFailure) => void;
+};
 
 export const auth = {
   dummyLogin: (role: Role) =>
@@ -47,7 +62,100 @@ export const assistants = {
     apiRequest<Assistant>(`/assistants/${id}`, { method: "PUT", body: input }),
   run: (id: string, input: AssistantRunCreateIn) =>
     apiRequest<AssistantRun>(`/assistants/${id}/run`, { method: "POST", body: input }),
+  runStream: async (
+    id: string,
+    input: AssistantRunCreateIn,
+    callbacks: RunStreamCallbacks = {},
+  ): Promise<AssistantRun> => {
+    const state: { finalRun?: AssistantRun } = {};
+    await apiStreamRequest(`/assistants/${id}/run/stream`, {
+      method: "POST",
+      body: input,
+      onEvent: (event, data) => {
+        if (event === "run") {
+          if (!isAssistantRun(data)) throw malformedStreamEvent(event);
+          callbacks.onRun?.(data);
+          return;
+        }
+        if (event === "delta") {
+          if (!isRunStreamDelta(data)) throw malformedStreamEvent(event);
+          callbacks.onDelta?.(data.delta);
+          return;
+        }
+        if (event === "done") {
+          if (!isAssistantRun(data)) throw malformedStreamEvent(event);
+          state.finalRun = data;
+          callbacks.onDone?.(data);
+          return;
+        }
+        if (event === "failed") {
+          if (!isRunStreamFailure(data)) throw malformedStreamEvent(event);
+          state.finalRun = data.run;
+          callbacks.onFailed?.(data);
+        }
+      },
+    });
+    if (!state.finalRun) {
+      throw new ApiError(0, "UNKNOWN", "Поток завершился без финального события");
+    }
+
+    return state.finalRun;
+  },
 };
+
+const apiErrorCodes = [
+  "INVALID_REQUEST",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "CATEGORY_NOT_FOUND",
+  "ASSISTANT_NOT_FOUND",
+  "ASSISTANT_INACTIVE",
+  "LLM_PROVIDER_ERROR",
+  "INTERNAL_ERROR",
+] as const satisfies readonly ApiErrorCode[];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isApiErrorCode(value: unknown): value is ApiErrorCode {
+  return typeof value === "string" && apiErrorCodes.some((code) => code === value);
+}
+
+function isRunStatus(value: unknown): value is RunStatus {
+  return value === "pending" || value === "success" || value === "failed";
+}
+
+function isAssistantRun(value: unknown): value is AssistantRun {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.assistantId === "string" &&
+    typeof value.userId === "string" &&
+    typeof value.model === "string" &&
+    typeof value.userPrompt === "string" &&
+    isRunStatus(value.status)
+  );
+}
+
+function isRunStreamDelta(value: unknown): value is AssistantRunStreamDelta {
+  return isRecord(value) && typeof value.delta === "string";
+}
+
+function isRunStreamFailure(value: unknown): value is AssistantRunStreamFailure {
+  return (
+    isRecord(value) &&
+    isAssistantRun(value.run) &&
+    isRecord(value.error) &&
+    isApiErrorCode(value.error.code) &&
+    typeof value.error.message === "string"
+  );
+}
+
+function malformedStreamEvent(event: string): ApiError {
+  return new ApiError(0, "UNKNOWN", `Некорректное SSE-событие: ${event}`);
+}
 
 export type RunsQuery = {
   status?: RunStatus;

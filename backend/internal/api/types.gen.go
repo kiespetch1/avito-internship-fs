@@ -200,6 +200,9 @@ type PutAssistantsAssistantIdJSONRequestBody = AssistantUpdateIn
 // PostAssistantsAssistantIdRunJSONRequestBody defines body for PostAssistantsAssistantIdRun for application/json ContentType.
 type PostAssistantsAssistantIdRunJSONRequestBody = AssistantRunCreateIn
 
+// PostAssistantsAssistantIdRunStreamJSONRequestBody defines body for PostAssistantsAssistantIdRunStream for application/json ContentType.
+type PostAssistantsAssistantIdRunStreamJSONRequestBody = AssistantRunCreateIn
+
 // PostCategoriesJSONRequestBody defines body for PostCategories for application/json ContentType.
 type PostCategoriesJSONRequestBody = CategoryCreateIn
 

@@ -40,7 +40,7 @@ export function AssistantDetailPage() {
     if (lastRun) {
       resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [lastRun]);
+  }, [lastRun?.id]);
 
   const assistantQuery = useQuery({
     queryKey: qk.assistants.byId(id),
@@ -48,7 +48,28 @@ export function AssistantDetailPage() {
     enabled: id !== "",
   });
 
-  const runMutation = useRunAssistant(id);
+  const runMutation = useRunAssistant(id, {
+    onRun: (run) => {
+      setLastRun({ ...run, output: "" });
+    },
+    onDelta: (delta) => {
+      setLastRun((current) => {
+        if (!current) return current;
+
+        return {
+          ...current,
+          output: `${current.output ?? ""}${delta}`,
+          status: "pending",
+        };
+      });
+    },
+    onDone: (run) => {
+      setLastRun(run);
+    },
+    onFailed: (failure) => {
+      setLastRun(failure.run);
+    },
+  });
 
   const handleRun = () => {
     const trimmed = prompt.trim();
@@ -56,6 +77,7 @@ export function AssistantDetailPage() {
       toast.error("Введите запрос");
       return;
     }
+    setLastRun(null);
     runMutation.mutate(
       { userPrompt: trimmed },
       {
@@ -158,7 +180,12 @@ export function AssistantDetailPage() {
                 <div ref={resultRef} className="space-y-3 scroll-mt-6">
                   <div className="flex items-center justify-between">
                     <h2 className="text-xl font-extrabold">Результат</h2>
-                    <RunStatusBadge status={lastRun.status} />
+                    <div className="flex items-center gap-2">
+                      {lastRun.status === "pending" && (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                      <RunStatusBadge status={lastRun.status} />
+                    </div>
                   </div>
                   {lastRun.status === "failed" ? (
                     <Alert variant="destructive">
@@ -170,7 +197,8 @@ export function AssistantDetailPage() {
                     </Alert>
                   ) : (
                     <div className="rounded-2xl bg-secondary p-4 text-[0.9375rem] leading-relaxed whitespace-pre-wrap">
-                      {lastRun.output ?? "—"}
+                      {lastRun.output ||
+                        (lastRun.status === "pending" ? "Генерация началась..." : "—")}
                     </div>
                   )}
                 </div>

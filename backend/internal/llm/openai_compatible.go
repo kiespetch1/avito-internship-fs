@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -50,46 +51,15 @@ func NewOpenAICompatibleProvider(cfg OpenAICompatibleConfig) (*OpenAICompatibleP
 
 func (p *OpenAICompatibleProvider) Generate(ctx context.Context, req Request) (Response, error) {
 	start := time.Now()
-	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		model = p.defaultModel
-	}
-	if model == "" {
-		return Response{}, fmt.Errorf("%w: model is required", ErrProviderFailed)
-	}
-
-	body, err := json.Marshal(chatCompletionRequest{
-		Model: model,
-		Messages: []chatMessage{
-			{Role: "system", Content: req.SystemPrompt},
-			{Role: "user", Content: req.UserPrompt},
-		},
-		Stream: false,
-	})
+	httpResp, err := p.doChatCompletionRequest(ctx, req, false, "application/json")
 	if err != nil {
-		return Response{}, fmt.Errorf("%w: encode request: %v", ErrProviderFailed, err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(body))
-	if err != nil {
-		return Response{}, fmt.Errorf("%w: build request: %v", ErrProviderFailed, err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-
-	httpResp, err := p.client.Do(httpReq)
-	if err != nil {
-		return Response{}, fmt.Errorf("%w: request failed: %v", ErrProviderFailed, err)
+		return Response{}, err
 	}
 	defer httpResp.Body.Close()
 
 	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, 1<<20))
 	if err != nil {
 		return Response{}, fmt.Errorf("%w: read response: %v", ErrProviderFailed, err)
-	}
-	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		return Response{}, fmt.Errorf("%w: status %d: %s", ErrProviderFailed, httpResp.StatusCode, providerErrorMessage(respBody))
 	}
 
 	var parsed chatCompletionResponse
@@ -128,6 +98,150 @@ func (p *OpenAICompatibleProvider) Generate(ctx context.Context, req Request) (R
 		LatencyMs:    int(time.Since(start) / time.Millisecond),
 		FinishReason: finishReason,
 	}, nil
+}
+
+func (p *OpenAICompatibleProvider) GenerateStream(ctx context.Context, req Request, onChunk func(StreamChunk)) (Response, error) {
+	start := time.Now()
+	httpResp, err := p.doChatCompletionRequest(ctx, req, true, "text/event-stream")
+	if err != nil {
+		return Response{}, err
+	}
+	defer httpResp.Body.Close()
+
+	var output strings.Builder
+	finishReason := "unknown"
+	seenDone := false
+	scanner := bufio.NewScanner(httpResp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	dataLines := make([]string, 0, 1)
+
+	flushEvent := func() (bool, error) {
+		if len(dataLines) == 0 {
+			return false, nil
+		}
+		data := strings.Join(dataLines, "\n")
+		dataLines = dataLines[:0]
+		if data == "[DONE]" {
+			seenDone = true
+			return true, nil
+		}
+
+		var parsed chatCompletionStreamResponse
+		if err := json.Unmarshal([]byte(data), &parsed); err != nil {
+			return false, fmt.Errorf("%w: decode stream chunk: %v", ErrProviderFailed, err)
+		}
+		for _, choice := range parsed.Choices {
+			if choice.Delta.Content != "" {
+				output.WriteString(choice.Delta.Content)
+				onChunk(StreamChunk{Delta: choice.Delta.Content})
+			}
+			if choice.FinishReason != "" {
+				finishReason = choice.FinishReason
+			}
+		}
+
+		return false, nil
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			done, err := flushEvent()
+			if err != nil {
+				return Response{}, err
+			}
+			if done {
+				break
+			}
+
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		if data, ok := strings.CutPrefix(line, "data:"); ok {
+			dataLines = append(dataLines, strings.TrimPrefix(data, " "))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return Response{}, fmt.Errorf("%w: read stream: %v", ErrProviderFailed, err)
+	}
+	if len(dataLines) > 0 {
+		if _, err := flushEvent(); err != nil {
+			return Response{}, err
+		}
+	}
+	if !seenDone {
+		return Response{}, fmt.Errorf("%w: stream ended before done event", ErrProviderFailed)
+	}
+
+	text := strings.TrimSpace(output.String())
+	if text == "" {
+		return Response{}, fmt.Errorf("%w: response content is empty", ErrProviderFailed)
+	}
+
+	return Response{
+		Output:       text,
+		TokensIn:     approximateTokens(req.SystemPrompt) + approximateTokens(req.UserPrompt),
+		TokensOut:    approximateTokens(text),
+		LatencyMs:    int(time.Since(start) / time.Millisecond),
+		FinishReason: finishReason,
+	}, nil
+}
+
+func (p *OpenAICompatibleProvider) doChatCompletionRequest(ctx context.Context, req Request, stream bool, accept string) (*http.Response, error) {
+	body, err := p.chatCompletionRequestBody(req, stream)
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("%w: build request: %v", ErrProviderFailed, err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", accept)
+
+	httpResp, err := p.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("%w: request failed: %v", ErrProviderFailed, err)
+	}
+	if httpResp.StatusCode >= 200 && httpResp.StatusCode < 300 {
+		return httpResp, nil
+	}
+
+	defer httpResp.Body.Close()
+	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("%w: read response: %v", ErrProviderFailed, err)
+	}
+
+	return nil, fmt.Errorf("%w: status %d: %s", ErrProviderFailed, httpResp.StatusCode, providerErrorMessage(respBody))
+}
+
+func (p *OpenAICompatibleProvider) chatCompletionRequestBody(req Request, stream bool) ([]byte, error) {
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = p.defaultModel
+	}
+	if model == "" {
+		return nil, fmt.Errorf("%w: model is required", ErrProviderFailed)
+	}
+
+	body, err := json.Marshal(chatCompletionRequest{
+		Model: model,
+		Messages: []chatMessage{
+			{Role: "system", Content: req.SystemPrompt},
+			{Role: "user", Content: req.UserPrompt},
+		},
+		Stream: stream,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode request: %v", ErrProviderFailed, err)
+	}
+
+	return body, nil
 }
 
 func chatCompletionsEndpoint(baseURL string) (string, error) {
@@ -193,4 +307,13 @@ type chatCompletionResponse struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 	} `json:"usage"`
+}
+
+type chatCompletionStreamResponse struct {
+	Choices []struct {
+		FinishReason string `json:"finish_reason"`
+		Delta        struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+	} `json:"choices"`
 }

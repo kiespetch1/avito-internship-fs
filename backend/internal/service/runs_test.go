@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,11 +95,24 @@ func (r *fakeRunRepo) GetByID(_ context.Context, id uuid.UUID) (domain.Assistant
 }
 
 type fakeProvider struct {
-	resp llm.Response
-	err  error
+	resp         llm.Response
+	err          error
+	streamChunks []string
+	streamFn     func(context.Context, llm.Request, func(llm.StreamChunk)) (llm.Response, error)
 }
 
 func (f *fakeProvider) Generate(_ context.Context, _ llm.Request) (llm.Response, error) {
+	return f.resp, f.err
+}
+
+func (f *fakeProvider) GenerateStream(ctx context.Context, req llm.Request, onChunk func(llm.StreamChunk)) (llm.Response, error) {
+	if f.streamFn != nil {
+		return f.streamFn(ctx, req, onChunk)
+	}
+	for _, chunk := range f.streamChunks {
+		onChunk(llm.StreamChunk{Delta: chunk})
+	}
+
 	return f.resp, f.err
 }
 
@@ -191,5 +205,109 @@ func TestRunNotFound(t *testing.T) {
 	_, err := svc.Run(context.Background(), uuid.New(), uuid.New(), "hi")
 	if !errors.Is(err, domain.ErrAssistantNotFound) {
 		t.Fatalf("err: %v", err)
+	}
+}
+
+func TestRunStreamHappyPath(t *testing.T) {
+	a := activeAssistant()
+	runs := newFakeRunRepo()
+	chunks := make([]string, 0, 2)
+	var created *domain.AssistantRun
+	svc := NewRunService(
+		&fakeAssistantRepo{getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil }},
+		runs,
+		&fakeProvider{
+			resp:         llm.Response{Output: "hello world", TokensIn: 3, TokensOut: 4, LatencyMs: 0, FinishReason: "stop"},
+			streamChunks: []string{"hello", " world"},
+		},
+		time.Second,
+	)
+
+	run, err := svc.RunStream(context.Background(), a.ID, uuid.New(), "hello", RunStreamCallbacks{
+		OnRunCreated: func(run domain.AssistantRun) {
+			created = &run
+		},
+		OnDelta: func(delta string) {
+			chunks = append(chunks, delta)
+		},
+	})
+	if err != nil {
+		t.Fatalf("run stream: %v", err)
+	}
+	if created == nil || created.Status != domain.RunPending {
+		t.Fatalf("pending callback: %+v", created)
+	}
+	if run.Status != domain.RunSuccess || run.Output == nil || *run.Output != "hello world" {
+		t.Fatalf("final run: %+v", run)
+	}
+	if got := strings.Join(chunks, ""); got != "hello world" {
+		t.Fatalf("chunks: %q", got)
+	}
+}
+
+func TestRunStreamPersistsFailure(t *testing.T) {
+	a := activeAssistant()
+	runs := newFakeRunRepo()
+	svc := NewRunService(
+		&fakeAssistantRepo{getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil }},
+		runs,
+		&fakeProvider{err: errors.New("boom"), streamChunks: []string{"partial"}},
+		time.Second,
+	)
+
+	_, err := svc.RunStream(context.Background(), a.ID, uuid.New(), "hello", RunStreamCallbacks{})
+	if err == nil {
+		t.Fatal("expected provider error")
+	}
+	if len(runs.created) != 1 {
+		t.Fatalf("created runs: %d", len(runs.created))
+	}
+	persisted, getErr := runs.GetByID(context.Background(), runs.created[0].ID)
+	if getErr != nil {
+		t.Fatalf("get persisted run: %v", getErr)
+	}
+	if persisted.Status != domain.RunFailed {
+		t.Fatalf("status: %s", persisted.Status)
+	}
+	if runs.failedCall == nil {
+		t.Fatal("MarkFailed not called")
+	}
+}
+
+func TestRunStreamUsesCallerContext(t *testing.T) {
+	a := activeAssistant()
+	runs := newFakeRunRepo()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errNotCanceled := errors.New("stream context was not canceled")
+	svc := NewRunService(
+		&fakeAssistantRepo{getFn: func(_ context.Context, _ uuid.UUID) (domain.Assistant, error) { return a, nil }},
+		runs,
+		&fakeProvider{
+			streamFn: func(ctx context.Context, _ llm.Request, _ func(llm.StreamChunk)) (llm.Response, error) {
+				select {
+				case <-ctx.Done():
+					return llm.Response{}, ctx.Err()
+				case <-time.After(100 * time.Millisecond):
+					return llm.Response{}, errNotCanceled
+				}
+			},
+		},
+		time.Second,
+	)
+
+	_, err := svc.RunStream(ctx, a.ID, uuid.New(), "hello", RunStreamCallbacks{
+		OnRunCreated: func(domain.AssistantRun) {
+			cancel()
+		},
+	})
+	if errors.Is(err, errNotCanceled) {
+		t.Fatal("RunStream did not pass caller cancellation to provider")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+	if runs.failedCall == nil {
+		t.Fatal("MarkFailed not called")
 	}
 }

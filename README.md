@@ -98,14 +98,15 @@ CREATE INDEX idx_assistant_tags_tag ON assistant_tags (tag_id);
 
 ### Обработка запуска ассистента и сохранение истории
 
-Реализовано в `backend/internal/service/runs.go`. Три независимых контекста с таймаутами:
+Реализовано в `backend/internal/service/runs.go`. Запуск проходит через несколько контекстов с разными гарантиями:
 
 1. **Проверка ассистента** — в рамках HTTP-запроса.
 2. **Сохранение `pending`** — `context.Background()` + 5 с. Запись происходит до вызова LLM; если БД недоступна — HTTP 500 без утечки.
-3. **Вызов LLM** — `context.Background()` + `LLM_TIMEOUT` (120 с по умолчанию). Контекст **не** привязан к HTTP-запросу: если клиент отключится, LLM-вызов продолжится.
-4. **Финализация** — ещё один `context.Background()` + 5 с. Запуск переводится в `success` или `failed` независимо от жизни соединения.
+3. **Вызов LLM для обычного `POST /assistants/{assistantId}/run`** — `context.Background()` + `LLM_TIMEOUT` (120 с по умолчанию). Контекст не привязан к HTTP-запросу: если клиент отключится, backend всё равно доведёт уже созданный запуск до финального состояния.
+4. **Вызов LLM для streaming `POST /assistants/{assistantId}/run/stream`** — контекст HTTP-запроса + `LLM_TIMEOUT`. Если клиент закрывает вкладку, отменяет `fetch` или запись SSE ломается, backend отменяет upstream LLM-вызов.
+5. **Финализация** — ещё один `context.Background()` + 5 с. Запуск переводится в `success` или `failed` независимо от жизни соединения.
 
-Такая схема гарантирует, что запись в `assistant_runs` никогда не зависает в `pending` из-за разрыва клиентского соединения.
+Финализация всегда использует отдельный короткий DB-контекст, поэтому запись в `assistant_runs` не должна зависать в `pending` из-за разрыва клиентского соединения.
 
 ### Контракт мокируемого LLM-провайдера
 
@@ -126,13 +127,19 @@ type Response struct {
     FinishReason string
 }
 
+type StreamChunk struct {
+    Delta string
+}
+
 type Provider interface {
     Generate(ctx context.Context, req Request) (Response, error)
+    GenerateStream(ctx context.Context, req Request, onChunk func(StreamChunk)) (Response, error)
 }
 ```
 
 `MockProvider` (`llm/mock.go`) реализует интерфейс без сетевых вызовов:
 - возвращает `[mock:<model>] <userPrompt>` как `Output`;
+- в streaming-режиме отдаёт тот же ответ частями через `onChunk`;
 - оценивает токены как `len(text)/4`;
 
 ### Пример запроса к LLM
@@ -153,6 +160,10 @@ type Provider interface {
 
 Помимо `mock`, backend поддерживает внешний OpenAI-compatible Chat Completions API через `llm.OpenAICompatibleProvider`. Провайдер отправляет `systemPrompt` и `userPrompt` как `messages` в `POST /chat/completions`, читает `choices[0].message.content`, `usage.prompt_tokens`, `usage.completion_tokens` и `finish_reason`.
 
+Для отображения прогресса генерации есть отдельный endpoint `POST /assistants/{assistantId}/run/stream`. Он создаёт запуск в статусе `pending`, отдаёт Server-Sent Events (`run`, `delta`, `done`, `failed`) и после завершения сохраняет финальный output в `assistant_runs`. Обычный `POST /assistants/{assistantId}/run` остаётся синхронным JSON-endpoint.
+
+Streaming-режим OpenAI-compatible provider считает ответ успешным только после upstream-события `data: [DONE]`. Если соединение с провайдером закрывается после частичных чанков без `[DONE]`, запуск помечается как `failed`, чтобы не сохранять обрезанный ответ как `success`.
+
 Интеграция реализована как OpenAI-compatible слой, а не как привязка к одному вендору. OpenAI API работает без `LLM_BASE_URL`, а, например, OpenRouter, подключается той же веткой через переопределённый base URL. Mock-провайдер остается дефолтом для проверки задания без ключей и позволяет включить реальный провайдер только env-переменными.
 
 Если `LLM_BASE_URL` не задан, используется базовый OpenAI endpoint `https://api.openai.com/v1`:
@@ -161,6 +172,15 @@ type Provider interface {
 LLM_PROVIDER=openai-compatible
 LLM_API_KEY=sk-...
 LLM_DEFAULT_MODEL=gpt-4o-mini
+```
+
+Для OpenRouter:
+
+```bash
+LLM_PROVIDER=openai-compatible
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_API_KEY=sk-or-...
+LLM_DEFAULT_MODEL=openai/gpt-4o-mini
 ```
 
 Реальный ключ не нужен для запуска проекта: дефолтный `LLM_PROVIDER=mock` остаётся полностью автономным.
@@ -172,7 +192,7 @@ LLM_DEFAULT_MODEL=gpt-4o-mini
 - повторные попытки не выполняются для 401 / 403 / 404, для остальных ошибок — до 2 повторов;
 - глобальный обработчик в `QueryCache` / `MutationCache` разлогинивает пользователя при 401.
 
-Аутентификационное состояние (JWT-токен + профиль пользователя) живёт в `localStorage` под ключом `avito.auth.v1` и читается через **`useSyncExternalStore`** (без дополнительных библиотек, поскольку приложение не предполагает сложного стейта). Изменения распространяются на все открытые вкладки через `window.addEventListener('storage', ...)`. Хранилище — `frontend/src/lib/auth/storage.ts`.
+Стейт аутентификации (JWT-токен + профиль пользователя) живёт в `localStorage` под ключом `avito.auth.v1` и читается через **`useSyncExternalStore`** (без дополнительных библиотек, поскольку приложение не предполагает сложного стейта). Изменения распространяются на все открытые вкладки через `window.addEventListener('storage', ...)`. Хранилище — `frontend/src/lib/auth/storage.ts`.
 
 Формы управляются через **TanStack Form** + **Zod** (валидация схем в `frontend/src/lib/forms/schemas/`).
 
@@ -210,6 +230,8 @@ NNNN_short_description.down.sql
 ### Swagger-документация
 
 Backend отдаёт Swagger UI на `GET /docs`. Интерфейс использует корневой `api.yaml`, доступный как `GET /docs/openapi.yaml`, поэтому документация и контракт API остаются синхронизированы с OpenAPI-спецификацией.
+
+Для `POST /assistants/{assistantId}/run/stream` в OpenAPI описаны как сам `text/event-stream` ответ (`200`), так и JSON-ошибки до старта SSE-потока: `400`, `401`, `404`, `409`, `500`, `502`. После отправки первого SSE-события HTTP-статус уже зафиксирован как `200`, поэтому ошибки генерации передаются событием `failed`.
 
 ## Тесты и покрытие
 

@@ -42,7 +42,7 @@ func RequireAuth(issuer *Issuer) func(http.Handler) http.Handler {
 				httpx.WriteError(w, http.StatusUnauthorized, httpx.CodeUnauthorized, "invalid or expired token")
 				return
 			}
-			userID, _ := uuid.Parse(claims.Subject)
+			userID, _ := uuid.Parse(claims.UserID)
 			ctx := context.WithValue(r.Context(), principalKey, Principal{UserID: userID, Role: claims.Role})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

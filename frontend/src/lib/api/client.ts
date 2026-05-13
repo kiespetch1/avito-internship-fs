@@ -28,6 +28,13 @@ export type RequestOptions = {
   signal?: AbortSignal;
 };
 
+export type StreamRequestOptions = {
+  method?: "POST";
+  body?: unknown;
+  signal?: AbortSignal;
+  onEvent: (event: string, data: unknown) => void;
+};
+
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
   const url = new URL(BASE_URL + path);
   if (query) {
@@ -73,6 +80,67 @@ export async function apiRequest<TResponse>(
   return data as TResponse;
 }
 
+export async function apiStreamRequest(
+  path: string,
+  options: StreamRequestOptions,
+): Promise<void> {
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  const token = loadAuth()?.token;
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let body: BodyInit | undefined;
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(options.body);
+  }
+
+  const res = await fetch(buildUrl(path), {
+    method: options.method ?? "POST",
+    headers,
+    body,
+    signal: options.signal,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    const parsed = parseError(text ? safeJson(text) : null);
+    throw new ApiError(res.status, parsed.code, parsed.message);
+  }
+  if (!res.body) {
+    throw new ApiError(0, "UNKNOWN", "Поток ответа недоступен");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const dispatchFrame = (frame: string) => {
+    const parsed = parseSSEFrame(frame);
+    if (!parsed) return;
+    const data = parseJson(parsed.data);
+    options.onEvent(parsed.event, data.ok ? data.value : parsed.data);
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = findSSEBoundary(buffer);
+    while (boundary) {
+      const frame = buffer.slice(0, boundary.index);
+      buffer = buffer.slice(boundary.index + boundary.length);
+      dispatchFrame(frame);
+      boundary = findSSEBoundary(buffer);
+    }
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim() !== "") {
+    dispatchFrame(buffer);
+  }
+}
+
 function safeJson(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -95,4 +163,51 @@ function parseError(data: unknown): { code: ApiErrorCode | "UNKNOWN"; message: s
     return { code: err.code, message: err.message };
   }
   return { code: "UNKNOWN", message: "Неизвестная ошибка" };
+}
+
+function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function parseSSEFrame(frame: string): { event: string; data: string } | null {
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const line of frame.split(/\r?\n/)) {
+    if (line === "" || line.startsWith(":")) continue;
+
+    const colonIndex = line.indexOf(":");
+    const field = colonIndex >= 0 ? line.slice(0, colonIndex) : line;
+    let value = colonIndex >= 0 ? line.slice(colonIndex + 1) : "";
+    if (value.startsWith(" ")) {
+      value = value.slice(1);
+    }
+
+    if (field === "event") {
+      event = value;
+    }
+    if (field === "data") {
+      dataLines.push(value);
+    }
+  }
+
+  if (dataLines.length === 0) return null;
+
+  return { event, data: dataLines.join("\n") };
+}
+
+function findSSEBoundary(buffer: string): { index: number; length: number } | null {
+  const lfIndex = buffer.indexOf("\n\n");
+  const crlfIndex = buffer.indexOf("\r\n\r\n");
+  if (lfIndex === -1 && crlfIndex === -1) return null;
+  if (lfIndex === -1) return { index: crlfIndex, length: 4 };
+  if (crlfIndex === -1) return { index: lfIndex, length: 2 };
+
+  return lfIndex < crlfIndex
+    ? { index: lfIndex, length: 2 }
+    : { index: crlfIndex, length: 4 };
 }

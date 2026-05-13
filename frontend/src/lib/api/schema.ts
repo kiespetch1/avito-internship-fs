@@ -434,6 +434,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/assistants/{assistantId}/run/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Запустить ассистента со streaming-ответом
+         * @description Backend создаёт pending-запуск, отдаёт прогресс генерации через Server-Sent Events и после завершения сохраняет финальный output в историю. События: `run` — созданный pending-запуск (`AssistantRun`); `delta` — фрагмент ответа (`AssistantRunStreamDelta`); `done` — финальный успешный запуск (`AssistantRun`); `failed` — финальный failed-запуск и ошибка (`AssistantRunStreamFailure`).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Идентификатор ассистента */
+                    assistantId: components["parameters"]["AssistantIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AssistantRunCreateIn"];
+                };
+            };
+            responses: {
+                /** @description SSE-поток прогресса генерации */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": string;
+                    };
+                };
+                /** @description Некорректный запрос */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Требуется аутентификация */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Ассистент не найден */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Ассистент выключен */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Внутренняя ошибка до старта SSE-потока */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Ошибка LLM-провайдера до старта SSE-потока */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/my": {
         parameters: {
             query?: never;
@@ -652,6 +752,14 @@ export interface components {
         };
         AssistantRunCreateIn: {
             userPrompt: string;
+        };
+        AssistantRunStreamDelta: {
+            /** @description Очередной фрагмент ответа LLM. */
+            delta: string;
+        };
+        AssistantRunStreamFailure: {
+            run: components["schemas"]["AssistantRun"];
+            error: components["schemas"]["ErrorResponse"]["error"];
         };
     };
     responses: never;

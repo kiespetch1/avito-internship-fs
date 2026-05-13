@@ -32,6 +32,11 @@ type RunListInput struct {
 	PageSize    int
 }
 
+type RunStreamCallbacks struct {
+	OnRunCreated func(domain.AssistantRun)
+	OnDelta      func(string)
+}
+
 func (s *RunService) List(ctx context.Context, in RunListInput) ([]domain.AssistantRun, int, error) {
 	page, pageSize := normalizePage(in.Page, in.PageSize, defaultRunsPageSize, maxPageSize)
 
@@ -63,18 +68,7 @@ func NewRunService(assistants AssistantRepo, runs RunRepo, provider llm.Provider
 // Run запускает ассистента через LLM-провайдер. Возвращает run в финальном состоянии (success или failed),
 // а при ошибке провайдера — обёрнутую llm.ErrProviderFailed, чтобы handler выбрал нужный HTTP-статус
 func (s *RunService) Run(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.AssistantRun, error) {
-	assistant, err := s.assistants.Get(ctx, assistantID)
-	if err != nil {
-		return domain.AssistantRun{}, err
-	}
-	if !assistant.IsActive {
-		return domain.AssistantRun{}, domain.ErrAssistantInactive
-	}
-
-	dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer dbCancel()
-
-	run, err := s.runs.CreatePending(dbCtx, assistantID, userID, assistant.Model, userPrompt)
+	assistant, run, err := s.prepareRun(ctx, assistantID, userID, userPrompt)
 	if err != nil {
 		return domain.AssistantRun{}, err
 	}
@@ -90,6 +84,57 @@ func (s *RunService) Run(ctx context.Context, assistantID, userID uuid.UUID, use
 	})
 	latencyMs := int(time.Since(start) / time.Millisecond)
 
+	return s.completeRun(run, resp, llmErr, latencyMs)
+}
+
+func (s *RunService) RunStream(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string, callbacks RunStreamCallbacks) (domain.AssistantRun, error) {
+	assistant, run, err := s.prepareRun(ctx, assistantID, userID, userPrompt)
+	if err != nil {
+		return domain.AssistantRun{}, err
+	}
+	if callbacks.OnRunCreated != nil {
+		callbacks.OnRunCreated(run)
+	}
+
+	llmCtx, llmCancel := context.WithTimeout(ctx, s.timeout)
+	defer llmCancel()
+
+	start := time.Now()
+	resp, llmErr := s.provider.GenerateStream(llmCtx, llm.Request{
+		Model:        assistant.Model,
+		SystemPrompt: assistant.SystemPrompt,
+		UserPrompt:   userPrompt,
+	}, func(chunk llm.StreamChunk) {
+		if callbacks.OnDelta != nil && chunk.Delta != "" {
+			callbacks.OnDelta(chunk.Delta)
+		}
+	})
+	latencyMs := int(time.Since(start) / time.Millisecond)
+
+	return s.completeRun(run, resp, llmErr, latencyMs)
+}
+
+func (s *RunService) prepareRun(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.Assistant, domain.AssistantRun, error) {
+	assistant, err := s.assistants.Get(ctx, assistantID)
+	if err != nil {
+		return domain.Assistant{}, domain.AssistantRun{}, err
+	}
+	if !assistant.IsActive {
+		return domain.Assistant{}, domain.AssistantRun{}, domain.ErrAssistantInactive
+	}
+
+	dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer dbCancel()
+
+	run, err := s.runs.CreatePending(dbCtx, assistantID, userID, assistant.Model, userPrompt)
+	if err != nil {
+		return domain.Assistant{}, domain.AssistantRun{}, err
+	}
+
+	return assistant, run, nil
+}
+
+func (s *RunService) completeRun(run domain.AssistantRun, resp llm.Response, llmErr error, latencyMs int) (domain.AssistantRun, error) {
 	finalCtx, finalCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer finalCancel()
 
@@ -104,9 +149,8 @@ func (s *RunService) Run(ctx context.Context, assistantID, userID uuid.UUID, use
 		return updated, wrapped
 	}
 
-	err = s.runs.MarkSuccess(
-		finalCtx, run.ID, resp.Output, resp.TokensIn, resp.TokensOut, latencyMs, resp.FinishReason)
-	if err != nil {
+	if err := s.runs.MarkSuccess(
+		finalCtx, run.ID, resp.Output, resp.TokensIn, resp.TokensOut, latencyMs, resp.FinishReason); err != nil {
 		return run, err
 	}
 	updated, err := s.runs.GetByID(finalCtx, run.ID)

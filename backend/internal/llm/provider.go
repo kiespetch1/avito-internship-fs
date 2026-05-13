@@ -21,6 +21,11 @@ type Response struct {
 	FinishReason string
 }
 
+type StreamChunk struct {
+	Delta string
+}
+
 type Provider interface {
 	Generate(ctx context.Context, req Request) (Response, error)
+	GenerateStream(ctx context.Context, req Request, onChunk func(StreamChunk)) (Response, error)
 }

@@ -45,6 +45,7 @@ func newRouter(d routerDeps) http.Handler {
 	mux.Handle("GET /assistants/{assistantId}", authed(http.HandlerFunc(d.AssistantsHandler.Get)))
 	mux.Handle("PUT /assistants/{assistantId}", adminOnly(http.HandlerFunc(d.AssistantsHandler.Update)))
 	mux.Handle("POST /assistants/{assistantId}/run", authed(http.HandlerFunc(d.RunsHandler.Run)))
+	mux.Handle("POST /assistants/{assistantId}/run/stream", authed(http.HandlerFunc(d.RunsHandler.RunStream)))
 
 	mux.Handle("GET /runs/my", authed(http.HandlerFunc(d.RunsHandler.MyRuns)))
 	mux.Handle("GET /admin/runs", adminOnly(http.HandlerFunc(d.RunsHandler.AdminRuns)))

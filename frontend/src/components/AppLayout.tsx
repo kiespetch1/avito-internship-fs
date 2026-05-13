@@ -21,7 +21,7 @@ export function AppLayout({ children }: Props) {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-6 px-6">
           <Link to="/assistants" className="flex items-baseline gap-2">
             <span className="text-sm font-semibold text-primary">Авито</span>
-            <span className="text-sm text-muted-foreground">AI Assistants</span>
+            <span className="text-sm text-muted-foreground">AI ассистенты</span>
           </Link>
 
           <nav className="flex items-center gap-1 text-sm">
@@ -33,13 +33,13 @@ export function AppLayout({ children }: Props) {
           <div className="flex items-center gap-3">
             {user && (
               <span className="hidden text-sm text-muted-foreground sm:inline">
-                {user.email} · {user.role}
+                Вы вошли как: {user.email}
               </span>
             )}
-            <ThemeToggle />
             <Button variant="outline" size="sm" onClick={handleLogout}>
               Выйти
             </Button>
+            <ThemeToggle />
           </div>
         </div>
       </header>

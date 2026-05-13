@@ -102,6 +102,72 @@ func TestOpenAICompatibleProviderUsesDefaultModel(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleProviderStreamsChatCompletion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Accept"); got != "text/event-stream" {
+			t.Fatalf("accept: %q", got)
+		}
+		var body chatCompletionRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if !body.Stream {
+			t.Fatal("stream must be true")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	provider, err := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+		BaseURL:      server.URL,
+		APIKey:       "test-key",
+		DefaultModel: "m",
+	})
+	if err != nil {
+		t.Fatalf("provider: %v", err)
+	}
+
+	chunks := make([]string, 0, 2)
+	resp, err := provider.GenerateStream(context.Background(), Request{UserPrompt: "hello"}, func(chunk StreamChunk) {
+		chunks = append(chunks, chunk.Delta)
+	})
+	if err != nil {
+		t.Fatalf("generate stream: %v", err)
+	}
+	if strings.Join(chunks, "") != "hello" {
+		t.Fatalf("chunks: %+v", chunks)
+	}
+	if resp.Output != "hello" || resp.FinishReason != "stop" {
+		t.Fatalf("response: %+v", resp)
+	}
+}
+
+func TestOpenAICompatibleProviderRejectsPrematureStreamClose(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n"))
+	}))
+	defer server.Close()
+
+	provider, err := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+		BaseURL:      server.URL,
+		APIKey:       "test-key",
+		DefaultModel: "m",
+	})
+	if err != nil {
+		t.Fatalf("provider: %v", err)
+	}
+
+	_, err = provider.GenerateStream(context.Background(), Request{UserPrompt: "hello"}, func(StreamChunk) {})
+	if !errors.Is(err, ErrProviderFailed) {
+		t.Fatalf("expected provider error, got %v", err)
+	}
+}
+
 func TestOpenAICompatibleProviderReturnsProviderErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

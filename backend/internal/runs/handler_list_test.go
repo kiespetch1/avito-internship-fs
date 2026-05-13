@@ -30,6 +30,10 @@ func (f *fakeListService) Run(ctx context.Context, a, u uuid.UUID, p string) (do
 	return f.runFn(ctx, a, u, p)
 }
 
+func (f *fakeListService) RunStream(ctx context.Context, a, u uuid.UUID, p string, _ service.RunStreamCallbacks) (domain.AssistantRun, error) {
+	return f.Run(ctx, a, u, p)
+}
+
 func (f *fakeListService) List(_ context.Context, in service.RunListInput) ([]domain.AssistantRun, int, error) {
 	f.captured = in
 	return f.items, f.total, nil

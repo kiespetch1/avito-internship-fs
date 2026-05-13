@@ -20,20 +20,60 @@ import (
 )
 
 type fakeService struct {
-	fn func(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.AssistantRun, error)
+	fn       func(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.AssistantRun, error)
+	streamFn func(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string, callbacks service.RunStreamCallbacks) (domain.AssistantRun, error)
 }
 
 func (f *fakeService) Run(ctx context.Context, a, u uuid.UUID, p string) (domain.AssistantRun, error) {
 	return f.fn(ctx, a, u, p)
 }
 
+func (f *fakeService) RunStream(ctx context.Context, a, u uuid.UUID, p string, callbacks service.RunStreamCallbacks) (domain.AssistantRun, error) {
+	if f.streamFn != nil {
+		return f.streamFn(ctx, a, u, p, callbacks)
+	}
+
+	return f.Run(ctx, a, u, p)
+}
+
 func (f *fakeService) List(_ context.Context, _ service.RunListInput) ([]domain.AssistantRun, int, error) {
 	return nil, 0, nil
 }
 
+type failingStreamWriter struct {
+	header http.Header
+	status int
+}
+
+func newFailingStreamWriter() *failingStreamWriter {
+	return &failingStreamWriter{header: make(http.Header)}
+}
+
+func (w *failingStreamWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *failingStreamWriter) WriteHeader(status int) {
+	w.status = status
+}
+
+func (w *failingStreamWriter) Write([]byte) (int, error) {
+	return 0, fmt.Errorf("write failed")
+}
+
+func (w *failingStreamWriter) Flush() {}
+
 func authedRequest(method, path, body string, userID uuid.UUID) *http.Request {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.SetPathValue("assistantId", strings.TrimPrefix(strings.TrimSuffix(path, "/run"), "/assistants/"))
+	ctx := auth.WithPrincipalForTest(req.Context(), auth.Principal{UserID: userID, Role: auth.RoleUser})
+
+	return req.WithContext(ctx)
+}
+
+func authedStreamRequest(method, path, body string, userID uuid.UUID) *http.Request {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.SetPathValue("assistantId", strings.TrimPrefix(strings.TrimSuffix(path, "/run/stream"), "/assistants/"))
 	ctx := auth.WithPrincipalForTest(req.Context(), auth.Principal{UserID: userID, Role: auth.RoleUser})
 
 	return req.WithContext(ctx)
@@ -133,5 +173,103 @@ func TestRunHandlerInvalidAssistantID(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status: %d", rr.Code)
+	}
+}
+
+func TestRunStreamHandlerSuccess(t *testing.T) {
+	aid := uuid.New()
+	uid := uuid.New()
+	out := "hello world"
+	runID := uuid.New()
+	h := NewHandler(&fakeService{
+		streamFn: func(_ context.Context, gotA, gotU uuid.UUID, p string, callbacks service.RunStreamCallbacks) (domain.AssistantRun, error) {
+			if gotA != aid || gotU != uid || p != "hi" {
+				t.Fatalf("args: %v %v %q", gotA, gotU, p)
+			}
+			pending := domain.AssistantRun{ID: runID, AssistantID: aid, UserID: uid, Model: "m", UserPrompt: p, Status: domain.RunPending, CreatedAt: time.Now()}
+			callbacks.OnRunCreated(pending)
+			callbacks.OnDelta("hello")
+			callbacks.OnDelta(" world")
+			pending.Status = domain.RunSuccess
+			pending.Output = &out
+
+			return pending, nil
+		},
+	})
+
+	rr := httptest.NewRecorder()
+	h.RunStream(rr, authedStreamRequest(http.MethodPost, "/assistants/"+aid.String()+"/run/stream", `{"userPrompt":"hi"}`, uid))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"event: run", `"status":"pending"`, "event: delta", `"delta":"hello"`, "event: done", `"status":"success"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("stream does not contain %q: %s", want, body)
+		}
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("content-type: %q", got)
+	}
+}
+
+func TestRunStreamHandlerProviderErrorAfterStart(t *testing.T) {
+	aid := uuid.New()
+	uid := uuid.New()
+	errMsg := "boom"
+	runID := uuid.New()
+	h := NewHandler(&fakeService{
+		streamFn: func(_ context.Context, _, _ uuid.UUID, p string, callbacks service.RunStreamCallbacks) (domain.AssistantRun, error) {
+			failed := domain.AssistantRun{ID: runID, AssistantID: aid, UserID: uid, Model: "m", UserPrompt: p, Status: domain.RunPending, CreatedAt: time.Now()}
+			callbacks.OnRunCreated(failed)
+			failed.Status = domain.RunFailed
+			failed.Error = &errMsg
+
+			return failed, fmt.Errorf("%w: %s", llm.ErrProviderFailed, errMsg)
+		},
+	})
+
+	rr := httptest.NewRecorder()
+	h.RunStream(rr, authedStreamRequest(http.MethodPost, "/assistants/"+aid.String()+"/run/stream", `{"userPrompt":"hi"}`, uid))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"event: run", "event: failed", `"status":"failed"`, `"code":"LLM_PROVIDER_ERROR"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("stream does not contain %q: %s", want, body)
+		}
+	}
+}
+
+func TestRunStreamHandlerCancelsServiceWhenWriteFails(t *testing.T) {
+	aid := uuid.New()
+	uid := uuid.New()
+	runID := uuid.New()
+	contextCanceled := false
+	h := NewHandler(&fakeService{
+		streamFn: func(ctx context.Context, _, _ uuid.UUID, p string, callbacks service.RunStreamCallbacks) (domain.AssistantRun, error) {
+			pending := domain.AssistantRun{ID: runID, AssistantID: aid, UserID: uid, Model: "m", UserPrompt: p, Status: domain.RunPending, CreatedAt: time.Now()}
+			callbacks.OnRunCreated(pending)
+			select {
+			case <-ctx.Done():
+				contextCanceled = true
+				return pending, ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+				return pending, fmt.Errorf("context was not canceled")
+			}
+		},
+	})
+
+	w := newFailingStreamWriter()
+	h.RunStream(w, authedStreamRequest(http.MethodPost, "/assistants/"+aid.String()+"/run/stream", `{"userPrompt":"hi"}`, uid))
+
+	if !contextCanceled {
+		t.Fatal("service context was not canceled after stream write failure")
+	}
+	if w.status != http.StatusOK {
+		t.Fatalf("status: %d", w.status)
 	}
 }

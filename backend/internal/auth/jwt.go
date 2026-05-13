@@ -23,7 +23,8 @@ func (r Role) Valid() bool {
 }
 
 type Claims struct {
-	Role Role `json:"role"`
+	UserID string `json:"user_id"`
+	Role   Role   `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -46,7 +47,8 @@ func NewIssuer(secret string, ttl time.Duration) (*Issuer, error) {
 func (i *Issuer) Issue(userID uuid.UUID, role Role) (string, error) {
 	now := time.Now()
 	claims := Claims{
-		Role: role,
+		UserID: userID.String(),
+		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -73,8 +75,8 @@ func (i *Issuer) Parse(raw string) (*Claims, error) {
 	if !claims.Role.Valid() {
 		return nil, fmt.Errorf("invalid role in token: %q", claims.Role)
 	}
-	if _, err := uuid.Parse(claims.Subject); err != nil {
-		return nil, fmt.Errorf("invalid subject in token: %w", err)
+	if _, err := uuid.Parse(claims.UserID); err != nil {
+		return nil, fmt.Errorf("invalid user_id in token: %w", err)
 	}
 
 	return claims, nil

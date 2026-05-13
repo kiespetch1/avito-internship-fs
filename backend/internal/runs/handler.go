@@ -2,6 +2,7 @@ package runs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -19,6 +20,7 @@ const maxUserPromptLen = 8000
 
 type Service interface {
 	Run(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string) (domain.AssistantRun, error)
+	RunStream(ctx context.Context, assistantID, userID uuid.UUID, userPrompt string, callbacks service.RunStreamCallbacks) (domain.AssistantRun, error)
 	List(ctx context.Context, in service.RunListInput) ([]domain.AssistantRun, int, error)
 }
 
@@ -33,6 +35,20 @@ func NewHandler(svc Service) *Handler {
 type listResponse struct {
 	Runs       []api.AssistantRun `json:"runs"`
 	Pagination api.Pagination     `json:"pagination"`
+}
+
+type streamDeltaResponse struct {
+	Delta string `json:"delta"`
+}
+
+type streamFailureResponse struct {
+	Run   api.AssistantRun   `json:"run"`
+	Error streamErrorPayload `json:"error"`
+}
+
+type streamErrorPayload struct {
+	Code    httpx.ErrorCode `json:"code"`
+	Message string          `json:"message"`
 }
 
 func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +92,107 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusCreated, toAPIRun(run))
+}
+
+func (h *Handler) RunStream(w http.ResponseWriter, r *http.Request) {
+	rawID := r.PathValue("assistantId")
+	assistantID, err := uuid.Parse(rawID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, "invalid assistantId")
+		return
+	}
+
+	principal, ok := auth.PrincipalFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, httpx.CodeUnauthorized, "not authenticated")
+		return
+	}
+
+	var req api.PostAssistantsAssistantIdRunStreamJSONRequestBody
+	if !httpx.DecodeJSON(w, r, &req) {
+		return
+	}
+	prompt, err := httpx.RequireField("userPrompt", req.UserPrompt, maxUserPromptLen)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, err.Error())
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternalError, "streaming is not supported")
+		return
+	}
+
+	streamCtx, cancelStream := context.WithCancel(r.Context())
+	defer cancelStream()
+
+	streamStarted := false
+	var streamWriteErr error
+	startStream := func() {
+		if streamStarted {
+			return
+		}
+		streamStarted = true
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-transform")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+	}
+	writeEvent := func(event string, payload any) {
+		if streamWriteErr != nil || streamCtx.Err() != nil {
+			return
+		}
+		startStream()
+		if err := writeSSE(w, event, payload); err != nil {
+			streamWriteErr = err
+			cancelStream()
+
+			return
+		}
+		flusher.Flush()
+	}
+
+	run, err := h.svc.RunStream(streamCtx, assistantID, principal.UserID, prompt, service.RunStreamCallbacks{
+		OnRunCreated: func(run domain.AssistantRun) {
+			writeEvent("run", toAPIRun(run))
+		},
+		OnDelta: func(delta string) {
+			writeEvent("delta", streamDeltaResponse{Delta: delta})
+		},
+	})
+	if err != nil {
+		if streamStarted {
+			if streamWriteErr != nil || errors.Is(streamCtx.Err(), context.Canceled) {
+				return
+			}
+			writeEvent("failed", streamFailureResponse{
+				Run: toAPIRun(run),
+				Error: streamErrorPayload{
+					Code:    streamErrorCode(err),
+					Message: streamErrorMessage(err),
+				},
+			})
+
+			return
+		}
+
+		switch {
+		case errors.Is(err, domain.ErrAssistantNotFound):
+			httpx.WriteError(w, http.StatusNotFound, httpx.CodeAssistantNotFound, "assistant not found")
+		case errors.Is(err, domain.ErrAssistantInactive):
+			httpx.WriteError(w, http.StatusConflict, httpx.CodeAssistantInactive, "assistant is not active")
+		case errors.Is(err, llm.ErrProviderFailed):
+			httpx.WriteError(w, http.StatusBadGateway, httpx.CodeLLMProviderError, err.Error())
+		default:
+			httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternalError, "failed to run assistant")
+		}
+
+		return
+	}
+
+	writeEvent("done", toAPIRun(run))
 }
 
 func (h *Handler) MyRuns(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +265,42 @@ func applyRunListQuery(r *http.Request, in *service.RunListInput, allowAssistant
 	in.Page, in.PageSize = page, pageSize
 
 	return nil
+}
+
+func writeSSE(w http.ResponseWriter, event string, payload any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte("event: " + event + "\n")); err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte("data: ")); err != nil {
+		return err
+	}
+	if _, err := w.Write(data); err != nil {
+		return err
+	}
+	_, err = w.Write([]byte("\n\n"))
+
+	return err
+}
+
+func streamErrorCode(err error) httpx.ErrorCode {
+	switch {
+	case errors.Is(err, llm.ErrProviderFailed):
+		return httpx.CodeLLMProviderError
+	default:
+		return httpx.CodeInternalError
+	}
+}
+
+func streamErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	return err.Error()
 }
 
 func toAPIRun(r domain.AssistantRun) api.AssistantRun {

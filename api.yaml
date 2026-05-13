@@ -289,6 +289,23 @@ components:
           type: string
           minLength: 1
 
+    AssistantRunStreamDelta:
+      type: object
+      required: [delta]
+      properties:
+        delta:
+          type: string
+          description: Очередной фрагмент ответа LLM.
+
+    AssistantRunStreamFailure:
+      type: object
+      required: [run, error]
+      properties:
+        run:
+          $ref: "#/components/schemas/AssistantRun"
+        error:
+          $ref: "#/components/schemas/ErrorResponse/properties/error"
+
 paths:
   /_info:
     get:
@@ -555,6 +572,82 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "502":
           description: Ошибка LLM-провайдера
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /assistants/{assistantId}/run/stream:
+    post:
+      tags: [Runs]
+      summary: Запустить ассистента со streaming-ответом
+      description: >
+        Backend создаёт pending-запуск, отдаёт прогресс генерации через Server-Sent Events
+        и после завершения сохраняет финальный output в историю. События:
+        `run` — созданный pending-запуск (`AssistantRun`);
+        `delta` — фрагмент ответа (`AssistantRunStreamDelta`);
+        `done` — финальный успешный запуск (`AssistantRun`);
+        `failed` — финальный failed-запуск и ошибка (`AssistantRunStreamFailure`).
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AssistantIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantRunCreateIn"
+      responses:
+        "200":
+          description: SSE-поток прогресса генерации
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                stream:
+                  value: |
+                    event: run
+                    data: {"id":"...","assistantId":"...","userId":"...","model":"openai/gpt-4o-mini","userPrompt":"hi","status":"pending"}
+
+                    event: delta
+                    data: {"delta":"Hello"}
+
+                    event: done
+                    data: {"id":"...","assistantId":"...","userId":"...","model":"openai/gpt-4o-mini","userPrompt":"hi","output":"Hello","status":"success"}
+        "400":
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Требуется аутентификация
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ассистент не найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Ассистент выключен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Внутренняя ошибка до старта SSE-потока
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Ошибка LLM-провайдера до старта SSE-потока
           content:
             application/json:
               schema:

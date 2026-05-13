@@ -317,7 +317,9 @@ func (f *failingProvider) Generate(_ context.Context, _ llm.Request) (llm.Respon
 	return llm.Response{}, errors.New(f.msg)
 }
 
-// ----- helpers -----
+func (f *failingProvider) GenerateStream(_ context.Context, _ llm.Request, _ func(llm.StreamChunk)) (llm.Response, error) {
+	return llm.Response{}, errors.New(f.msg)
+}
 
 type testServer struct {
 	httpSrv   *httptest.Server
