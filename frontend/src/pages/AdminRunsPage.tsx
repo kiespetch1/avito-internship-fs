@@ -124,26 +124,41 @@ export function AdminRunsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Ассистент</TableHead>
-                  <TableHead>Запрос</TableHead>
+
+                  <TableHead className="hidden md:table-cell">
+                    Запрос
+                  </TableHead>
+
                   <TableHead>Статус</TableHead>
-                  <TableHead className="w-[160px]">Дата</TableHead>
-                  <TableHead className="w-[100px]" />
+
+                  <TableHead className="hidden sm:table-cell sm:w-[160px]">
+                    Дата
+                  </TableHead>
+
+                  <TableHead className="w-[80px]" />
                 </TableRow>
               </TableHeader>
+
               <TableBody>
                 {data.runs.map((run) => (
                   <TableRow key={run.id}>
-                    <TableCell className="font-semibold">
+                    <TableCell className="max-w-[120px] truncate font-semibold sm:max-w-none">
                       {run.assistantName ?? "—"}
                     </TableCell>
-                    <TableCell className="max-w-[280px] truncate text-muted-foreground">
+
+                    <TableCell className="hidden max-w-[280px] truncate text-muted-foreground md:table-cell">
                       {run.userPrompt}
                     </TableCell>
+
                     <TableCell>
                       <RunStatusBadge status={run.status} />
                     </TableCell>
-                    <TableCell>{formatDateTime(run.createdAt)}</TableCell>
-                    <TableCell>
+
+                    <TableCell className="hidden sm:table-cell">
+                      {formatDateTime(run.createdAt)}
+                    </TableCell>
+
+                    <TableCell className="text-right">
                       <Button size="sm" variant="soft" onClick={() => setOpenRun(run)}>
                         Открыть
                       </Button>
@@ -152,7 +167,6 @@ export function AdminRunsPage() {
                 ))}
               </TableBody>
             </Table>
-
             <PaginationControl
               pagination={data.pagination}
               onChange={(page) => setFilters({ page })}

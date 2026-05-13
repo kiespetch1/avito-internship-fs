@@ -1,35 +1,24 @@
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { Plus, Search, Star } from "lucide-react";
-import { AssistantFavoriteButton } from "@/components/AssistantFavoriteButton";
-import { PaginationControl } from "@/components/PaginationControl";
-import { QueryStateBoundary } from "@/components/QueryStateBoundary";
-import { Button } from "@/components/ui/button";
-import { Card, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import { Tag } from "@/components/ui/tag";
-import { assistants as assistantsApi } from "@/lib/api";
-import { useCategories } from "@/lib/api/queries/useCategories";
-import { qk } from "@/lib/api/queryKeys";
-import { useAuth } from "@/lib/auth";
-import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
-import {
-  boolParam,
-  intParam,
-  stringParam,
-  useSearchParamsState,
-} from "@/lib/hooks/useSearchParamsState";
+import {useQuery} from "@tanstack/react-query";
+import {useEffect, useMemo, useState} from "react";
+import {Link} from "react-router-dom";
+import {Plus, Search, Star} from "lucide-react";
+import {AssistantFavoriteButton} from "@/components/AssistantFavoriteButton";
+import {PaginationControl} from "@/components/PaginationControl";
+import {QueryStateBoundary} from "@/components/QueryStateBoundary";
+import {Button} from "@/components/ui/button";
+import {Card, CardTitle} from "@/components/ui/card";
+import {Input} from "@/components/ui/input";
+import {Label} from "@/components/ui/label";
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from "@/components/ui/select";
+import {Skeleton} from "@/components/ui/skeleton";
+import {Switch} from "@/components/ui/switch";
+import {Tag} from "@/components/ui/tag";
+import {assistants as assistantsApi} from "@/lib/api";
+import {useCategories} from "@/lib/api/queries/useCategories";
+import {qk} from "@/lib/api/queryKeys";
+import {useAuth} from "@/lib/auth";
+import {useDebouncedValue} from "@/lib/hooks/useDebouncedValue";
+import {boolParam, intParam, stringParam, useSearchParamsState,} from "@/lib/hooks/useSearchParamsState";
 
 const CATALOG_PAGE_SIZE = 12;
 const ALL_CATEGORIES = "__all__";
@@ -43,7 +32,7 @@ const filtersSchema = {
 };
 
 export function CatalogPage() {
-  const { user } = useAuth();
+  const {user} = useAuth();
   const isAdmin = user?.role === "admin";
 
   const [filters, setFilters] = useSearchParamsState(filtersSchema);
@@ -52,14 +41,14 @@ export function CatalogPage() {
 
   useEffect(() => {
     if (debouncedSearch !== filters.q) {
-      setFilters({ q: debouncedSearch, page: 1 });
+      setFilters({q: debouncedSearch, page: 1});
     }
   }, [debouncedSearch, filters.q, setFilters]);
 
   const categoriesQuery = useCategories();
 
   const categoryLabels = useMemo<Record<string, string>>(() => {
-    const map: Record<string, string> = { [ALL_CATEGORIES]: "Все категории" };
+    const map: Record<string, string> = {[ALL_CATEGORIES]: "Все категории"};
     for (const c of categoriesQuery.data?.categories ?? []) {
       map[c.id] = c.name;
     }
@@ -77,7 +66,7 @@ export function CatalogPage() {
 
   const assistantsQuery = useQuery({
     queryKey: qk.assistants.list(user?.id, listQuery),
-    queryFn: ({ signal }) => assistantsApi.list(listQuery, signal),
+    queryFn: ({signal}) => assistantsApi.list(listQuery, signal),
     placeholderData: (prev) => prev,
   });
 
@@ -98,7 +87,7 @@ export function CatalogPage() {
               size="sm"
               render={
                 <Link to="/admin/categories/new">
-                  <Plus />
+                  <Plus/>
                   Категория
                 </Link>
               }
@@ -108,7 +97,7 @@ export function CatalogPage() {
               size="sm"
               render={
                 <Link to="/admin/assistants/new">
-                  <Plus />
+                  <Plus/>
                   Ассистент
                 </Link>
               }
@@ -119,7 +108,7 @@ export function CatalogPage() {
 
       <div className="flex flex-wrap gap-3">
         <div className="relative w-64">
-          <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"/>
           <Input
             className="pl-9"
             placeholder="Поиск по названию или описанию"
@@ -138,7 +127,7 @@ export function CatalogPage() {
           }
         >
           <SelectTrigger className="w-44">
-            <SelectValue placeholder="Категория" items={categoryLabels} />
+            <SelectValue placeholder="Категория" items={categoryLabels}/>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL_CATEGORIES}>Все категории</SelectItem>
@@ -150,27 +139,29 @@ export function CatalogPage() {
           </SelectContent>
         </Select>
 
-        {isAdmin && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              <Switch
+                id="include-inactive"
+                checked={filters.includeInactive}
+                onCheckedChange={(v) => setFilters({includeInactive: v, page: 1})}
+              />
+              <Label htmlFor="include-inactive">Показать неактивных</Label>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <Switch
-              id="include-inactive"
-              checked={filters.includeInactive}
-              onCheckedChange={(v) => setFilters({ includeInactive: v, page: 1 })}
+              id="favorite-only"
+              checked={filters.favoriteOnly}
+              onCheckedChange={(v) => setFilters({favoriteOnly: v, page: 1})}
             />
-            <Label htmlFor="include-inactive">Показать неактивных</Label>
+            <Label htmlFor="favorite-only" className="inline-flex items-center gap-1.5">
+              <Star className="size-4"/>
+              Только избранные
+            </Label>
           </div>
-        )}
-
-        <div className="flex items-center gap-2">
-          <Switch
-            id="favorite-only"
-            checked={filters.favoriteOnly}
-            onCheckedChange={(v) => setFilters({ favoriteOnly: v, page: 1 })}
-          />
-          <Label htmlFor="favorite-only" className="inline-flex items-center gap-1.5">
-            <Star className="size-4" />
-            Только избранные
-          </Label>
         </div>
       </div>
 
@@ -183,12 +174,12 @@ export function CatalogPage() {
                 key={i}
                 className="overflow-hidden rounded-2xl border bg-secondary p-0 shadow-none"
               >
-                <Skeleton className="aspect-[4/3] w-full rounded-none" />
+                <Skeleton className="aspect-[4/3] w-full rounded-none"/>
                 <div className="space-y-2 p-4">
-                  <Skeleton className="h-4 w-20" />
-                  <Skeleton className="h-5 w-32" />
-                  <Skeleton className="h-3 w-full" />
-                  <Skeleton className="h-3 w-2/3" />
+                  <Skeleton className="h-4 w-20"/>
+                  <Skeleton className="h-5 w-32"/>
+                  <Skeleton className="h-3 w-full"/>
+                  <Skeleton className="h-3 w-2/3"/>
                 </div>
               </Card>
             ))}
@@ -196,7 +187,8 @@ export function CatalogPage() {
         }
         isEmpty={(data) => data.assistants.length === 0}
         emptyFallback={
-          <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
+          <div
+            className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
             {filters.favoriteOnly
               ? "В избранном пока нет ассистентов."
               : "По вашему запросу ничего не найдено."}
@@ -247,7 +239,7 @@ export function CatalogPage() {
 
             <PaginationControl
               pagination={data.pagination}
-              onChange={(page) => setFilters({ page })}
+              onChange={(page) => setFilters({page})}
             />
           </div>
         )}
