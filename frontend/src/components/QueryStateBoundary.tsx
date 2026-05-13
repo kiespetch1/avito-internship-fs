@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {getErrorMessage} from "@/lib/api/errorMessage.ts";
+import { getErrorMessage } from "@/lib/api/errorMessage";
 
 type Props<T> = {
   query: {

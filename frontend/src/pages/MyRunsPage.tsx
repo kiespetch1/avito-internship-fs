@@ -167,6 +167,7 @@ export function MyRunsPage() {
       <RunDetailDialog
         run={openRun}
         currentUserId={user?.id}
+        showTechnicalError={user?.role === "admin"}
         onRunUpdated={setOpenRun}
         onClose={() => setOpenRun(null)}
       />

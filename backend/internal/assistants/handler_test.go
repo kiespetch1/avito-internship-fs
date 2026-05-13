@@ -54,6 +54,7 @@ func sampleAssistant() domain.Assistant {
 	return domain.Assistant{
 		ID: uuid.New(), CategoryID: uuid.New(), Name: "Повар",
 		Description: "рецепты", Model: "gpt-4o-mini", SystemPrompt: "be a chef",
+		Tags:     []string{"еда", "рецепты"},
 		IsActive: true, CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 }
@@ -86,6 +87,9 @@ func TestGetReturnsAssistant(t *testing.T) {
 	}
 	if !got.IsFavorite {
 		t.Fatalf("isFavorite must be returned")
+	}
+	if len(got.Tags) != 2 || got.Tags[0] != "еда" || got.Tags[1] != "рецепты" {
+		t.Fatalf("unexpected tags: %+v", got.Tags)
 	}
 }
 
@@ -145,7 +149,8 @@ func validCreateBody(categoryID uuid.UUID) string {
 		"name":"Повар",
 		"description":"рецепты",
 		"model":"gpt-4o-mini",
-		"systemPrompt":"be a chef"
+		"systemPrompt":"be a chef",
+		"tags":["Еда","рецепты"," еда "]
 	}`
 }
 
@@ -171,6 +176,9 @@ func TestCreateSuccess(t *testing.T) {
 	}
 	if captured.CategoryID != categoryID || captured.Name != "Повар" || !captured.IsActive {
 		t.Fatalf("captured: %+v", captured)
+	}
+	if len(captured.Tags) != 2 || captured.Tags[0] != "еда" || captured.Tags[1] != "рецепты" {
+		t.Fatalf("tags were not normalized: %+v", captured.Tags)
 	}
 }
 
@@ -257,6 +265,18 @@ func TestCreateRespectsExplicitIsActiveFalse(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsTooManyTags(t *testing.T) {
+	categoryID := uuid.New()
+	body := `{"categoryId":"` + categoryID.String() + `","name":"x","description":"d","model":"m","systemPrompt":"s","tags":["1","2","3","4","5","6","7","8","9","10","11","12","13"]}`
+	req := httptest.NewRequest(http.MethodPost, "/assistants", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	NewHandler(&fakeService{}).Create(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 // ----- Update -----
 
 func TestUpdateSuccess(t *testing.T) {
@@ -273,7 +293,7 @@ func TestUpdateSuccess(t *testing.T) {
 			return a, nil
 		},
 	})
-	body := `{"categoryId":"` + categoryID.String() + `","name":"renamed","description":"d","model":"m","systemPrompt":"s","isActive":false}`
+	body := `{"categoryId":"` + categoryID.String() + `","name":"renamed","description":"d","model":"m","systemPrompt":"s","tags":["спорт"],"isActive":false}`
 	req := httptest.NewRequest(http.MethodPut, "/assistants/"+id.String(), strings.NewReader(body))
 	req.SetPathValue("assistantId", id.String())
 	rr := httptest.NewRecorder()
@@ -284,6 +304,9 @@ func TestUpdateSuccess(t *testing.T) {
 	}
 	if captured.ID != id || captured.Name != "renamed" || captured.IsActive {
 		t.Fatalf("captured: %+v", captured)
+	}
+	if len(captured.Tags) != 1 || captured.Tags[0] != "спорт" {
+		t.Fatalf("tags: %+v", captured.Tags)
 	}
 }
 
@@ -368,6 +391,9 @@ func TestListSuccess(t *testing.T) {
 	if !got.Assistants[0].IsFavorite {
 		t.Fatalf("isFavorite must be returned in list")
 	}
+	if len(got.Assistants[0].Tags) != 2 {
+		t.Fatalf("tags must be returned in list: %+v", got.Assistants[0].Tags)
+	}
 }
 
 func TestListParsesCategoryFilter(t *testing.T) {
@@ -408,6 +434,26 @@ func TestListParsesQuery(t *testing.T) {
 	}
 	if captured.Query == nil || *captured.Query != "повар" {
 		t.Fatalf("query not trimmed/parsed: %+v", captured.Query)
+	}
+}
+
+func TestListParsesTag(t *testing.T) {
+	var captured service.AssistantListInput
+	h := NewHandler(&fakeService{
+		listFn: func(_ context.Context, in service.AssistantListInput) ([]domain.Assistant, int, error) {
+			captured = in
+			return nil, 0, nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/assistants?tag=%20%20еда%20%20", nil)
+	rr := httptest.NewRecorder()
+	h.List(rr, withPrincipal(req, auth.RoleUser))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: %d", rr.Code)
+	}
+	if captured.Tag == nil || *captured.Tag != "еда" {
+		t.Fatalf("tag not parsed: %+v", captured.Tag)
 	}
 }
 

@@ -14,7 +14,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { ApiError, type Assistant } from "@/lib/api";
+import { type Assistant } from "@/lib/api";
+import { showErrorToast } from "@/lib/api/errorMessage";
 import { useAssistant } from "@/lib/api/queries/useAssistant";
 import { useCategories } from "@/lib/api/queries/useCategories";
 import { useUpdateAssistant } from "@/lib/api/queries/useUpdateAssistant";
@@ -25,6 +26,7 @@ function toFormValues(a: Assistant): AssistantFormValues {
     description: a.description,
     categoryId: a.categoryId,
     model: a.model,
+    tags: a.tags.join(", "),
     systemPrompt: a.systemPrompt ?? "",
     exampleUserPrompt: a.exampleUserPrompt ?? "",
     isActive: a.isActive,
@@ -44,9 +46,7 @@ export function EditAssistantPage() {
       toast.success("Изменения сохранены");
       navigate("/assistants");
     } catch (err) {
-      const message =
-        err instanceof ApiError ? err.message : "Не удалось обновить ассистента";
-      toast.error(message);
+      showErrorToast(err, { fallback: "Не удалось обновить ассистента" });
     }
   };
 

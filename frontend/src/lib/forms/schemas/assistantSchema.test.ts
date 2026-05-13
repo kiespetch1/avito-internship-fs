@@ -7,6 +7,7 @@ const validAssistant = {
   description: "Помогает с рецептами",
   categoryId: "00000000-0000-4000-8000-000000000000",
   model: "gpt-4o-mini",
+  tags: "еда, рецепты",
   systemPrompt: "Ты повар",
   exampleUserPrompt: "курица, рис",
   isActive: true,
@@ -38,6 +39,11 @@ describe("assistantSchema", () => {
 
   it("allows an empty example user prompt", () => {
     const result = assistantSchema.safeParse({ ...validAssistant, exampleUserPrompt: "" });
+    expect(result.success).toBe(true);
+  });
+
+  it("allows empty tags", () => {
+    const result = assistantSchema.safeParse({ ...validAssistant, tags: "   " });
     expect(result.success).toBe(true);
   });
 });

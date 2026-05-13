@@ -18,13 +18,14 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Tag } from "@/components/ui/tag";
 import { Textarea } from "@/components/ui/textarea";
 import { type AssistantRun, assistants as assistantsApi } from "@/lib/api";
+import { getRunErrorMessage, showErrorToast } from "@/lib/api/errorMessage";
 import { useRunAssistant } from "@/lib/api/queries/useRunAssistant";
 import { qk } from "@/lib/api/queryKeys";
 import { useAuth } from "@/lib/auth";
-import {getRunErrorMessage, showErrorToast} from "@/lib/api/errorMessage.ts";
 
 export function AssistantDetailPage() {
   const { id = "" } = useParams<{ id: string }>();
@@ -32,6 +33,7 @@ export function AssistantDetailPage() {
   const isAdmin = user?.role === "admin";
 
   const [prompt, setPrompt] = useState("");
+  const [streaming, setStreaming] = useState(true);
   const [lastRun, setLastRun] = useState<AssistantRun | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
 
@@ -78,7 +80,7 @@ export function AssistantDetailPage() {
     }
     setLastRun(null);
     runMutation.mutate(
-      { userPrompt: trimmed },
+      { input: { userPrompt: trimmed }, streaming },
       {
         onSuccess: (run) => {
           setLastRun(run);
@@ -127,6 +129,11 @@ export function AssistantDetailPage() {
                 <header className="space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     {assistant.categoryName && <Tag>{assistant.categoryName}</Tag>}
+                    {assistant.tags.map((tag) => (
+                      <Tag key={tag} variant="secondary">
+                        {tag}
+                      </Tag>
+                    ))}
                     {assistant.isActive ? (
                       <Tag variant="success">Активен</Tag>
                     ) : (
@@ -243,6 +250,18 @@ export function AssistantDetailPage() {
                         Пример: {assistant.exampleUserPrompt}
                       </p>
                     )}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="assistant-run-streaming"
+                      checked={streaming}
+                      onCheckedChange={setStreaming}
+                      disabled={!assistant.isActive || runMutation.isPending}
+                    />
+                    <Label htmlFor="assistant-run-streaming">
+                      Потоковый ответ
+                    </Label>
                   </div>
 
                   <div className="flex gap-3">

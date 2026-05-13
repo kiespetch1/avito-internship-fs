@@ -33,7 +33,6 @@ llm:
   provider: openai
   timeout: 5s
   baseUrl: https://example.test
-  defaultModel: gpt-4
 `
 	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
@@ -72,7 +71,7 @@ func TestEnvOverridesYAML(t *testing.T) {
 
 func clearLLMEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"LLM_PROVIDER", "LLM_TIMEOUT", "LLM_BASE_URL", "LLM_API_KEY", "LLM_DEFAULT_MODEL", "HTTP_ADDR"} {
+	for _, k := range []string{"LLM_PROVIDER", "LLM_TIMEOUT", "LLM_BASE_URL", "LLM_API_KEY", "HTTP_ADDR"} {
 		t.Setenv(k, "")
 		_ = os.Unsetenv(k)
 	}

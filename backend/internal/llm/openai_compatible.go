@@ -19,16 +19,14 @@ const (
 )
 
 type OpenAICompatibleConfig struct {
-	BaseURL      string
-	APIKey       string
-	DefaultModel string
+	BaseURL string
+	APIKey  string
 }
 
 type OpenAICompatibleProvider struct {
-	endpoint     string
-	apiKey       string
-	defaultModel string
-	client       *http.Client
+	endpoint string
+	apiKey   string
+	client   *http.Client
 }
 
 func NewOpenAICompatibleProvider(cfg OpenAICompatibleConfig) (*OpenAICompatibleProvider, error) {
@@ -42,10 +40,9 @@ func NewOpenAICompatibleProvider(cfg OpenAICompatibleConfig) (*OpenAICompatibleP
 	}
 
 	return &OpenAICompatibleProvider{
-		endpoint:     endpoint,
-		apiKey:       apiKey,
-		defaultModel: strings.TrimSpace(cfg.DefaultModel),
-		client:       http.DefaultClient,
+		endpoint: endpoint,
+		apiKey:   apiKey,
+		client:   http.DefaultClient,
 	}, nil
 }
 
@@ -222,9 +219,6 @@ func (p *OpenAICompatibleProvider) doChatCompletionRequest(ctx context.Context, 
 
 func (p *OpenAICompatibleProvider) chatCompletionRequestBody(req Request, stream bool) ([]byte, error) {
 	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		model = p.defaultModel
-	}
 	if model == "" {
 		return nil, fmt.Errorf("%w: model is required", ErrProviderFailed)
 	}

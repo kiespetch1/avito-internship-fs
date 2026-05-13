@@ -22,6 +22,8 @@ const (
 	maxAssistantModelLen         = 128
 	maxAssistantSystemPromptLen  = 32_000
 	maxAssistantExamplePromptLen = 8000
+	maxAssistantTagLen           = 48
+	maxAssistantTags             = 12
 )
 
 type Service interface {
@@ -65,6 +67,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	if raw := strings.TrimSpace(q.Get("q")); raw != "" {
 		in.Query = &raw
+	}
+	if raw := strings.TrimSpace(q.Get("tag")); raw != "" {
+		in.Tag = &raw
 	}
 	if raw := q.Get("includeInactive"); raw != "" {
 		v, err := strconv.ParseBool(raw)
@@ -167,7 +172,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
-	f, ok := validateAssistantFields(w, req.Name, req.Description, req.Model, req.SystemPrompt, req.ExampleUserPrompt)
+	f, ok := validateAssistantFields(w, req.Name, req.Description, req.Model, req.SystemPrompt, req.ExampleUserPrompt, req.Tags)
 	if !ok {
 		return
 	}
@@ -182,6 +187,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		Name:              f.Name,
 		Description:       f.Description,
 		Model:             f.Model,
+		Tags:              f.Tags,
 		SystemPrompt:      f.SystemPrompt,
 		ExampleUserPrompt: f.ExamplePrompt,
 		IsActive:          isActive,
@@ -205,7 +211,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	if !httpx.DecodeJSON(w, r, &req) {
 		return
 	}
-	f, ok := validateAssistantFields(w, req.Name, req.Description, req.Model, req.SystemPrompt, req.ExampleUserPrompt)
+	f, ok := validateAssistantFields(w, req.Name, req.Description, req.Model, req.SystemPrompt, req.ExampleUserPrompt, req.Tags)
 	if !ok {
 		return
 	}
@@ -216,6 +222,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		Name:              f.Name,
 		Description:       f.Description,
 		Model:             f.Model,
+		Tags:              f.Tags,
 		SystemPrompt:      f.SystemPrompt,
 		ExampleUserPrompt: f.ExamplePrompt,
 		IsActive:          req.IsActive,
@@ -243,12 +250,13 @@ type assistantFields struct {
 	Name          string
 	Description   string
 	Model         string
+	Tags          []string
 	SystemPrompt  string
 	ExamplePrompt *string
 }
 
-func validateAssistantFields(w http.ResponseWriter, rawName, rawDesc, rawModel, rawSystem string, rawExample *string) (assistantFields, bool) {
-	f, err := validateAssistantPayload(rawName, rawDesc, rawModel, rawSystem, rawExample)
+func validateAssistantFields(w http.ResponseWriter, rawName, rawDesc, rawModel, rawSystem string, rawExample *string, rawTags *[]string) (assistantFields, bool) {
+	f, err := validateAssistantPayload(rawName, rawDesc, rawModel, rawSystem, rawExample, rawTags)
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeInvalidRequest, err.Error())
 		return assistantFields{}, false
@@ -257,7 +265,7 @@ func validateAssistantFields(w http.ResponseWriter, rawName, rawDesc, rawModel, 
 	return f, true
 }
 
-func validateAssistantPayload(rawName, rawDesc, rawModel, rawSystem string, rawExample *string) (assistantFields, error) {
+func validateAssistantPayload(rawName, rawDesc, rawModel, rawSystem string, rawExample *string, rawTags *[]string) (assistantFields, error) {
 	name, err := httpx.RequireField("name", rawName, maxAssistantNameLen)
 	if err != nil {
 		return assistantFields{}, err
@@ -285,14 +293,50 @@ func validateAssistantPayload(rawName, rawDesc, rawModel, rawSystem string, rawE
 			examplePrompt = &ex
 		}
 	}
+	tags, err := validateAssistantTags(rawTags)
+	if err != nil {
+		return assistantFields{}, err
+	}
 
 	return assistantFields{
 		Name: name, Description: description, Model: model,
-		SystemPrompt: systemPrompt, ExamplePrompt: examplePrompt,
+		Tags: tags, SystemPrompt: systemPrompt, ExamplePrompt: examplePrompt,
 	}, nil
 }
 
+func validateAssistantTags(rawTags *[]string) ([]string, error) {
+	if rawTags == nil {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(*rawTags))
+	tags := make([]string, 0, len(*rawTags))
+	for _, raw := range *rawTags {
+		tag := strings.ToLower(strings.TrimSpace(raw))
+		if tag == "" {
+			continue
+		}
+		if len(tag) > maxAssistantTagLen {
+			return nil, errors.New("tag is too long")
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		tags = append(tags, tag)
+		if len(tags) > maxAssistantTags {
+			return nil, errors.New("too many tags")
+		}
+	}
+
+	return tags, nil
+}
+
 func toAPIAssistant(a domain.Assistant, hideSystemPrompt bool) api.Assistant {
+	tags := a.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+
 	out := api.Assistant{
 		Id:                a.ID,
 		CategoryId:        a.CategoryID,
@@ -300,6 +344,7 @@ func toAPIAssistant(a domain.Assistant, hideSystemPrompt bool) api.Assistant {
 		Name:              a.Name,
 		Description:       a.Description,
 		Model:             a.Model,
+		Tags:              tags,
 		ExampleUserPrompt: a.ExampleUserPrompt,
 		IsActive:          a.IsActive,
 		IsFavorite:        a.IsFavorite,

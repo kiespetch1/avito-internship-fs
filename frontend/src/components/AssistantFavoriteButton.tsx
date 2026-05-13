@@ -1,8 +1,7 @@
 import type { MouseEvent } from "react";
 import { Star } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ApiError } from "@/lib/api";
+import { showErrorToast } from "@/lib/api/errorMessage";
 import { useSetAssistantFavorite } from "@/lib/api/queries/useSetAssistantFavorite";
 import { cn } from "@/lib/utils";
 
@@ -29,9 +28,7 @@ export function AssistantFavoriteButton({
       { assistantId, isFavorite: !isFavorite },
       {
         onError: (err) => {
-          const message =
-            err instanceof ApiError ? err.message : "Не удалось обновить избранное";
-          toast.error(message);
+          showErrorToast(err, { fallback: "Не удалось обновить избранное" });
         },
       },
     );

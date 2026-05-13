@@ -55,6 +55,7 @@ export type AssistantsQuery = {
   q?: string;
   includeInactive?: boolean;
   favoriteOnly?: boolean;
+  tag?: string;
   page?: number;
   pageSize?: number;
 };

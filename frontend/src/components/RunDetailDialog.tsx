@@ -11,16 +11,24 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { type AssistantRun } from "@/lib/api";
+import { getRunErrorMessage } from "@/lib/api/errorMessage";
 import { formatDateTime } from "@/lib/format";
 
 type Props = {
   run: AssistantRun | null;
   currentUserId: string | null | undefined;
+  showTechnicalError?: boolean;
   onRunUpdated: (run: AssistantRun) => void;
   onClose: () => void;
 };
 
-export function RunDetailDialog({ run, currentUserId, onRunUpdated, onClose }: Props) {
+export function RunDetailDialog({
+  run,
+  currentUserId,
+  showTechnicalError = false,
+  onRunUpdated,
+  onClose,
+}: Props) {
   return (
     <Dialog open={run !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="flex max-h-[calc(100dvh-2rem)] grid-rows-none flex-col overflow-hidden sm:max-w-2xl">
@@ -46,7 +54,11 @@ export function RunDetailDialog({ run, currentUserId, onRunUpdated, onClose }: P
                   {run.status === "failed" ? "Ошибка" : "Ответ"}
                 </Label>
                 <div className="rounded-2xl bg-secondary p-4 text-[0.9375rem] leading-relaxed whitespace-pre-wrap">
-                  {run.status === "failed" ? (run.error ?? "—") : (run.output ?? "—")}
+                  {run.status === "failed"
+                    ? getRunErrorMessage(run.error, {
+                        showTechnical: showTechnicalError,
+                      })
+                    : (run.output ?? "—")}
                 </div>
                 <RunFeedbackControl
                   run={run}

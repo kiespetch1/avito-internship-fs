@@ -22,6 +22,7 @@ export type AssistantFormOut = {
   description: string;
   categoryId: string;
   model: string;
+  tags: string[];
   systemPrompt: string;
   exampleUserPrompt: string | null;
   isActive: boolean;
@@ -54,6 +55,7 @@ export function AssistantForm({
         description: parsed.description,
         categoryId: parsed.categoryId,
         model: parsed.model,
+        tags: parseTags(parsed.tags),
         systemPrompt: parsed.systemPrompt,
         exampleUserPrompt:
           parsed.exampleUserPrompt === "" ? null : parsed.exampleUserPrompt,
@@ -150,6 +152,26 @@ export function AssistantForm({
         )}
       </form.Field>
 
+      <form.Field name="tags">
+        {(field) => (
+          <FormField
+            label="Теги"
+            description="Через запятую, например еда, рецепты"
+            error={fieldErrorMessage(field.state.meta.errors)}
+          >
+            {(p) => (
+              <Input
+                {...p}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(e) => field.handleChange(e.target.value)}
+                placeholder="еда, рецепты"
+              />
+            )}
+          </FormField>
+        )}
+      </form.Field>
+
       <form.Field name="systemPrompt">
         {(field) => (
           <FormField
@@ -234,4 +256,17 @@ export function AssistantForm({
       </form.Subscribe>
     </form>
   );
+}
+
+function parseTags(value: string): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const raw of value.split(",")) {
+    const tag = raw.trim().toLowerCase();
+    if (tag === "" || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+
+  return tags;
 }

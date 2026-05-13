@@ -40,9 +40,8 @@ func TestResolveLLMProviderRejectsUnknown(t *testing.T) {
 
 func TestResolveLLMProviderOpenAICompatible(t *testing.T) {
 	p, err := resolveLLMProvider(config.LLMConfig{
-		Provider:     "openai-compatible",
-		APIKey:       "test-key",
-		DefaultModel: "openai/gpt-4o-mini",
+		Provider: "openai-compatible",
+		APIKey:   "test-key",
 	})
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)

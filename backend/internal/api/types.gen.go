@@ -63,6 +63,7 @@ type Assistant struct {
 
 	// SystemPrompt Может быть скрыт от обычного пользователя по решению кандидата
 	SystemPrompt *string    `json:"systemPrompt"`
+	Tags         []string   `json:"tags"`
 	UpdatedAt    *time.Time `json:"updatedAt"`
 }
 
@@ -75,6 +76,7 @@ type AssistantCreateIn struct {
 	Model             string             `json:"model"`
 	Name              string             `json:"name"`
 	SystemPrompt      string             `json:"systemPrompt"`
+	Tags              *[]string          `json:"tags,omitempty"`
 }
 
 // AssistantRun defines model for AssistantRun.
@@ -110,6 +112,7 @@ type AssistantUpdateIn struct {
 	Model             string             `json:"model"`
 	Name              string             `json:"name"`
 	SystemPrompt      string             `json:"systemPrompt"`
+	Tags              *[]string          `json:"tags,omitempty"`
 }
 
 // AuthCredentialsIn defines model for AuthCredentialsIn.
@@ -209,8 +212,11 @@ type GetAssistantsParams struct {
 
 	// FavoriteOnly Показывать только избранных ассистентов текущего пользователя
 	FavoriteOnly *bool `form:"favoriteOnly,omitempty" json:"favoriteOnly,omitempty"`
-	Page         *int  `form:"page,omitempty" json:"page,omitempty"`
-	PageSize     *int  `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+
+	// Tag Фильтр по тегу ассистента
+	Tag      *string `form:"tag,omitempty" json:"tag,omitempty"`
+	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int    `form:"pageSize,omitempty" json:"pageSize,omitempty"`
 }
 
 // PostDummyLoginJSONBody defines parameters for PostDummyLogin.

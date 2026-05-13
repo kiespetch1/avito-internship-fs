@@ -95,6 +95,7 @@ func TestAssistantServiceCreateMapsFields(t *testing.T) {
 		Name:              "Повар",
 		Description:       "desc",
 		Model:             "gpt",
+		Tags:              []string{"еда", "рецепты"},
 		SystemPrompt:      "sys",
 		ExampleUserPrompt: &example,
 		IsActive:          true,
@@ -111,6 +112,9 @@ func TestAssistantServiceCreateMapsFields(t *testing.T) {
 	}
 	if captured.ExampleUserPrompt == nil || *captured.ExampleUserPrompt != "ex" {
 		t.Fatalf("example prompt not propagated: %+v", captured.ExampleUserPrompt)
+	}
+	if len(captured.Tags) != 2 || captured.Tags[0] != "еда" || captured.Tags[1] != "рецепты" {
+		t.Fatalf("tags not propagated: %+v", captured.Tags)
 	}
 }
 
@@ -130,6 +134,7 @@ func TestAssistantServiceUpdateMapsFields(t *testing.T) {
 		Name:         "renamed",
 		Description:  "d",
 		Model:        "gpt",
+		Tags:         []string{"спорт"},
 		SystemPrompt: "sys",
 		IsActive:     false,
 	})
@@ -138,6 +143,9 @@ func TestAssistantServiceUpdateMapsFields(t *testing.T) {
 	}
 	if captured.ID != id || captured.CategoryID != categoryID || captured.Name != "renamed" || captured.IsActive {
 		t.Fatalf("captured: %+v", captured)
+	}
+	if len(captured.Tags) != 1 || captured.Tags[0] != "спорт" {
+		t.Fatalf("tags: %+v", captured.Tags)
 	}
 }
 
@@ -188,6 +196,7 @@ func TestAssistantServiceListPassesFilters(t *testing.T) {
 	userID := uuid.New()
 	categoryID := uuid.New()
 	q := "повар"
+	tag := "еда"
 	var captured repository.AssistantListFilter
 	repo := &fakeAssistantWriteRepo{
 		listFn: func(_ context.Context, f repository.AssistantListFilter) ([]domain.Assistant, int, error) {
@@ -199,6 +208,7 @@ func TestAssistantServiceListPassesFilters(t *testing.T) {
 		UserID:          userID,
 		CategoryID:      &categoryID,
 		Query:           &q,
+		Tag:             &tag,
 		IncludeInactive: true,
 		FavoriteOnly:    true,
 		Page:            1,
@@ -212,6 +222,9 @@ func TestAssistantServiceListPassesFilters(t *testing.T) {
 	}
 	if captured.Query == nil || *captured.Query != "повар" {
 		t.Fatalf("query not propagated: %+v", captured.Query)
+	}
+	if captured.Tag == nil || *captured.Tag != "еда" {
+		t.Fatalf("tag not propagated: %+v", captured.Tag)
 	}
 	if !captured.IncludeInactive {
 		t.Fatalf("IncludeInactive not propagated")

@@ -13,6 +13,7 @@ type Assistant struct {
 	Name              string
 	Description       string
 	Model             string
+	Tags              []string
 	SystemPrompt      string
 	ExampleUserPrompt *string
 	IsActive          bool

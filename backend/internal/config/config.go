@@ -20,11 +20,10 @@ type Config struct {
 }
 
 type LLMConfig struct {
-	Provider     string        `yaml:"provider"`
-	Timeout      time.Duration `yaml:"timeout"`
-	BaseURL      string        `yaml:"baseUrl"`
-	APIKey       string        `yaml:"apiKey"`
-	DefaultModel string        `yaml:"defaultModel"`
+	Provider string        `yaml:"provider"`
+	Timeout  time.Duration `yaml:"timeout"`
+	BaseURL  string        `yaml:"baseUrl"`
+	APIKey   string        `yaml:"apiKey"`
 }
 
 const DefaultLLMTimeout = 2 * time.Minute
@@ -72,7 +71,6 @@ func applyEnv(cfg *Config) {
 	setDuration(&cfg.LLM.Timeout, "LLM_TIMEOUT")
 	setString(&cfg.LLM.BaseURL, "LLM_BASE_URL")
 	setString(&cfg.LLM.APIKey, "LLM_API_KEY")
-	setString(&cfg.LLM.DefaultModel, "LLM_DEFAULT_MODEL")
 }
 
 func setString(dst *string, key string) {

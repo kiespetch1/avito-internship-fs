@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError } from "@/lib/api";
+import { showErrorToast } from "@/lib/api/errorMessage";
 import { useCreateCategory } from "@/lib/api/queries/useCreateCategory";
 import { fieldErrorMessage } from "@/lib/forms/fieldError";
 import { categorySchema, type CategoryFormValues } from "@/lib/forms/schemas/categorySchema";
@@ -37,9 +37,7 @@ export function NewCategoryPage() {
         toast.success("Категория создана");
         navigate("/assistants");
       } catch (err) {
-        const message =
-          err instanceof ApiError ? err.message : "Не удалось создать категорию";
-        toast.error(message);
+        showErrorToast(err, { fallback: "Не удалось создать категорию" });
       }
     },
   });

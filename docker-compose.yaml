@@ -26,7 +26,6 @@ services:
       JWT_TTL: ${JWT_TTL:-24h}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-120s}
-      LLM_DEFAULT_MODEL: ${LLM_DEFAULT_MODEL:-gpt-mock}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
     ports:

@@ -71,7 +71,6 @@ func main() {
 			"addr", cfg.HTTPAddr,
 			"llm.provider", cfg.LLM.Provider,
 			"llm.timeout", cfg.LLM.Timeout,
-			"llm.model", cfg.LLM.DefaultModel,
 			"jwt.ttl", cfg.JWTTTL,
 		)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -108,9 +107,8 @@ func resolveLLMProvider(cfg config.LLMConfig) (llm.Provider, error) {
 		}
 
 		return llm.NewOpenAICompatibleProvider(llm.OpenAICompatibleConfig{
-			BaseURL:      baseURL,
-			APIKey:       cfg.APIKey,
-			DefaultModel: cfg.DefaultModel,
+			BaseURL: baseURL,
+			APIKey:  cfg.APIKey,
 		})
 	default:
 		return nil, errors.New("unsupported llm provider: " + cfg.Provider)

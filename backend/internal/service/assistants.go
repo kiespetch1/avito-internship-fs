@@ -31,6 +31,7 @@ type AssistantCreateInput struct {
 	Name              string
 	Description       string
 	Model             string
+	Tags              []string
 	SystemPrompt      string
 	ExampleUserPrompt *string
 	IsActive          bool
@@ -42,6 +43,7 @@ type AssistantUpdateInput struct {
 	Name              string
 	Description       string
 	Model             string
+	Tags              []string
 	SystemPrompt      string
 	ExampleUserPrompt *string
 	IsActive          bool
@@ -51,6 +53,7 @@ type AssistantListInput struct {
 	UserID          uuid.UUID
 	CategoryID      *uuid.UUID
 	Query           *string
+	Tag             *string
 	IncludeInactive bool
 	FavoriteOnly    bool
 	Page            int
@@ -67,6 +70,7 @@ func (s *AssistantService) Create(ctx context.Context, in AssistantCreateInput) 
 		Name:              in.Name,
 		Description:       in.Description,
 		Model:             in.Model,
+		Tags:              in.Tags,
 		SystemPrompt:      in.SystemPrompt,
 		ExampleUserPrompt: in.ExampleUserPrompt,
 		IsActive:          in.IsActive,
@@ -80,6 +84,7 @@ func (s *AssistantService) Update(ctx context.Context, in AssistantUpdateInput) 
 		Name:              in.Name,
 		Description:       in.Description,
 		Model:             in.Model,
+		Tags:              in.Tags,
 		SystemPrompt:      in.SystemPrompt,
 		ExampleUserPrompt: in.ExampleUserPrompt,
 		IsActive:          in.IsActive,
@@ -93,6 +98,7 @@ func (s *AssistantService) List(ctx context.Context, in AssistantListInput) ([]d
 		UserID:          &in.UserID,
 		CategoryID:      in.CategoryID,
 		Query:           in.Query,
+		Tag:             in.Tag,
 		IncludeInactive: in.IncludeInactive,
 		FavoriteOnly:    in.FavoriteOnly,
 		Limit:           pageSize,

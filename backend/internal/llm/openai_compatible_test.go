@@ -51,9 +51,8 @@ func TestOpenAICompatibleProviderSendsChatCompletionRequest(t *testing.T) {
 	defer server.Close()
 
 	provider, err := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
-		BaseURL:      server.URL + "/v1",
-		APIKey:       "test-key",
-		DefaultModel: "fallback",
+		BaseURL: server.URL + "/v1",
+		APIKey:  "test-key",
 	})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
@@ -72,33 +71,20 @@ func TestOpenAICompatibleProviderSendsChatCompletionRequest(t *testing.T) {
 	}
 }
 
-func TestOpenAICompatibleProviderUsesDefaultModel(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body chatCompletionRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		if body.Model != "openrouter/auto" {
-			t.Fatalf("model: %q", body.Model)
-		}
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
-	}))
-	defer server.Close()
-
+func TestOpenAICompatibleProviderRequiresModel(t *testing.T) {
 	provider, err := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
-		BaseURL:      server.URL,
-		APIKey:       "test-key",
-		DefaultModel: "openrouter/auto",
+		BaseURL: "https://example.test",
+		APIKey:  "test-key",
 	})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	resp, err := provider.Generate(context.Background(), Request{UserPrompt: "hello"})
-	if err != nil {
-		t.Fatalf("generate: %v", err)
+	_, err = provider.Generate(context.Background(), Request{UserPrompt: "hello"})
+	if !errors.Is(err, ErrProviderFailed) {
+		t.Fatalf("expected ErrProviderFailed, got %v", err)
 	}
-	if resp.Output != "ok" {
-		t.Fatalf("output: %q", resp.Output)
+	if !strings.Contains(err.Error(), "model is required") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -123,16 +109,15 @@ func TestOpenAICompatibleProviderStreamsChatCompletion(t *testing.T) {
 	defer server.Close()
 
 	provider, err := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
-		BaseURL:      server.URL,
-		APIKey:       "test-key",
-		DefaultModel: "m",
+		BaseURL: server.URL,
+		APIKey:  "test-key",
 	})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
 
 	chunks := make([]string, 0, 2)
-	resp, err := provider.GenerateStream(context.Background(), Request{UserPrompt: "hello"}, func(chunk StreamChunk) {
+	resp, err := provider.GenerateStream(context.Background(), Request{Model: "m", UserPrompt: "hello"}, func(chunk StreamChunk) {
 		chunks = append(chunks, chunk.Delta)
 	})
 	if err != nil {
@@ -154,15 +139,14 @@ func TestOpenAICompatibleProviderRejectsPrematureStreamClose(t *testing.T) {
 	defer server.Close()
 
 	provider, err := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
-		BaseURL:      server.URL,
-		APIKey:       "test-key",
-		DefaultModel: "m",
+		BaseURL: server.URL,
+		APIKey:  "test-key",
 	})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
 
-	_, err = provider.GenerateStream(context.Background(), Request{UserPrompt: "hello"}, func(StreamChunk) {})
+	_, err = provider.GenerateStream(context.Background(), Request{Model: "m", UserPrompt: "hello"}, func(StreamChunk) {})
 	if !errors.Is(err, ErrProviderFailed) {
 		t.Fatalf("expected provider error, got %v", err)
 	}
@@ -176,14 +160,13 @@ func TestOpenAICompatibleProviderReturnsProviderErrors(t *testing.T) {
 	defer server.Close()
 
 	provider, err := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
-		BaseURL:      server.URL,
-		APIKey:       "test-key",
-		DefaultModel: "m",
+		BaseURL: server.URL,
+		APIKey:  "test-key",
 	})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	_, err = provider.Generate(context.Background(), Request{UserPrompt: "hello"})
+	_, err = provider.Generate(context.Background(), Request{Model: "m", UserPrompt: "hello"})
 	if !errors.Is(err, ErrProviderFailed) {
 		t.Fatalf("expected ErrProviderFailed, got %v", err)
 	}
@@ -208,14 +191,13 @@ func TestOpenAICompatibleProviderRejectsInvalidResponse(t *testing.T) {
 	defer server.Close()
 
 	provider, err := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
-		BaseURL:      server.URL,
-		APIKey:       "test-key",
-		DefaultModel: "m",
+		BaseURL: server.URL,
+		APIKey:  "test-key",
 	})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	_, err = provider.Generate(context.Background(), Request{UserPrompt: "hello"})
+	_, err = provider.Generate(context.Background(), Request{Model: "m", UserPrompt: "hello"})
 	if !errors.Is(err, ErrProviderFailed) {
 		t.Fatalf("expected ErrProviderFailed, got %v", err)
 	}

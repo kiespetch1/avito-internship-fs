@@ -26,6 +26,7 @@ const ALL_CATEGORIES = "__all__";
 const filtersSchema = {
   q: stringParam(""),
   categoryId: stringParam(""),
+  tag: stringParam(""),
   includeInactive: boolParam(false),
   favoriteOnly: boolParam(false),
   page: intParam(1),
@@ -58,6 +59,7 @@ export function CatalogPage() {
   const listQuery = {
     q: filters.q || undefined,
     categoryId: filters.categoryId || undefined,
+    tag: filters.tag || undefined,
     includeInactive: isAdmin && filters.includeInactive ? true : undefined,
     favoriteOnly: filters.favoriteOnly ? true : undefined,
     page: filters.page,
@@ -139,6 +141,13 @@ export function CatalogPage() {
           </SelectContent>
         </Select>
 
+        <Input
+          className="w-44"
+          placeholder="Тег"
+          value={filters.tag}
+          onChange={(e) => setFilters({tag: e.target.value, page: 1})}
+        />
+
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           {isAdmin && (
             <div className="flex items-center gap-2">
@@ -218,6 +227,11 @@ export function CatalogPage() {
                     <div className="space-y-2 p-4">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Tag>{a.categoryName ?? "Без категории"}</Tag>
+                        {a.tags.map((tag) => (
+                          <Tag key={tag} variant="secondary">
+                            {tag}
+                          </Tag>
+                        ))}
                         {a.isActive ? (
                           <Tag variant="success">Активен</Tag>
                         ) : (

@@ -1,8 +1,8 @@
 import { ThumbsDown, ThumbsUp, type LucideIcon } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { type AssistantRun, type RunFeedbackRating } from "@/lib/api";
+import { showErrorToast } from "@/lib/api/errorMessage";
 import { useSetRunFeedback } from "@/lib/api/queries/useSetRunFeedback";
 
 type Props = {
@@ -35,9 +35,7 @@ export function RunFeedbackControl({ run, currentUserId, onRunUpdated }: Props) 
       {
         onSuccess: onRunUpdated,
         onError: (error) => {
-          const message =
-            error instanceof Error ? error.message : "Не удалось сохранить оценку";
-          toast.error(message);
+          showErrorToast(error, { fallback: "Не удалось сохранить оценку" });
         },
       },
     );

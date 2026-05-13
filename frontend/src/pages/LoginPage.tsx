@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { ApiError, type Role } from "@/lib/api";
+import { type Role } from "@/lib/api";
+import { getErrorMessage } from "@/lib/api/errorMessage";
 import {
   useDummyLogin,
   usePasswordLogin,
@@ -39,7 +40,10 @@ function isRole(value: string): value is Role {
 }
 
 function authErrorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
+  return getErrorMessage(err, {
+    fallback,
+    unauthorizedMessage: fallback,
+  });
 }
 
 export function LoginPage() {
@@ -124,7 +128,7 @@ function PasswordLoginForm({
         await loginMutation.mutateAsync(parsed);
         onDone();
       } catch (err) {
-        toast.error(authErrorMessage(err, "Не удалось войти"));
+        toast.error(authErrorMessage(err, "Неверная почта или пароль"));
       }
     },
   });

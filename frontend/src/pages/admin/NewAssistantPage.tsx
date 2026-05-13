@@ -14,7 +14,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { ApiError } from "@/lib/api";
+import { showErrorToast } from "@/lib/api/errorMessage";
 import { useCategories } from "@/lib/api/queries/useCategories";
 import { useCreateAssistant } from "@/lib/api/queries/useCreateAssistant";
 
@@ -23,6 +23,7 @@ const defaults: AssistantFormValues = {
   description: "",
   categoryId: "",
   model: "mock-smart",
+  tags: "",
   systemPrompt: "",
   exampleUserPrompt: "",
   isActive: true,
@@ -39,9 +40,7 @@ export function NewAssistantPage() {
       toast.success("Ассистент создан");
       navigate("/assistants");
     } catch (err) {
-      const message =
-        err instanceof ApiError ? err.message : "Не удалось создать ассистента";
-      toast.error(message);
+      showErrorToast(err, { fallback: "Не удалось создать ассистента" });
     }
   };
 

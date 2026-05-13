@@ -167,7 +167,7 @@ components:
 
     Assistant:
       type: object
-      required: [id, categoryId, name, description, model, isActive, isFavorite]
+      required: [id, categoryId, name, description, model, tags, isActive, isFavorite]
       properties:
         id:
           type: string
@@ -187,6 +187,11 @@ components:
         model:
           type: string
           example: mock-smart
+        tags:
+          type: array
+          items:
+            type: string
+          example: [еда, рецепты]
         systemPrompt:
           type: string
           nullable: true
@@ -231,6 +236,10 @@ components:
         exampleUserPrompt:
           type: string
           nullable: true
+        tags:
+          type: array
+          items:
+            type: string
         isActive:
           type: boolean
           default: true
@@ -257,6 +266,10 @@ components:
         exampleUserPrompt:
           type: string
           nullable: true
+        tags:
+          type: array
+          items:
+            type: string
         isActive:
           type: boolean
 
@@ -527,6 +540,11 @@ paths:
             type: boolean
             default: false
           description: Показывать только избранных ассистентов текущего пользователя
+        - name: tag
+          in: query
+          schema:
+            type: string
+          description: Фильтр по тегу ассистента
         - name: page
           in: query
           schema:
@@ -580,11 +598,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Assistant"
         "400":
-          description: Некорректный запрос
+          description: Некорректный запрос или категория не существует
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidRequest:
+                  value:
+                    error:
+                      code: INVALID_REQUEST
+                      message: invalid request
+                categoryNotFound:
+                  value:
+                    error:
+                      code: CATEGORY_NOT_FOUND
+                      message: category not found
         "403":
           description: Недостаточно прав
           content:
@@ -633,6 +662,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Assistant"
+        "400":
+          description: Некорректный запрос или категория не существует
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidRequest:
+                  value:
+                    error:
+                      code: INVALID_REQUEST
+                      message: invalid request
+                categoryNotFound:
+                  value:
+                    error:
+                      code: CATEGORY_NOT_FOUND
+                      message: category not found
         "403":
           description: Недостаточно прав
           content:

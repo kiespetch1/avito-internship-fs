@@ -304,6 +304,8 @@ export interface paths {
                     includeInactive?: boolean;
                     /** @description Показывать только избранных ассистентов текущего пользователя */
                     favoriteOnly?: boolean;
+                    /** @description Фильтр по тегу ассистента */
+                    tag?: string;
                     page?: number;
                     pageSize?: number;
                 };
@@ -360,7 +362,7 @@ export interface paths {
                         "application/json": components["schemas"]["Assistant"];
                     };
                 };
-                /** @description Некорректный запрос */
+                /** @description Некорректный запрос или категория не существует */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -450,6 +452,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["Assistant"];
+                    };
+                };
+                /** @description Некорректный запрос или категория не существует */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
                 /** @description Недостаточно прав */
@@ -1007,6 +1018,13 @@ export interface components {
             description: string;
             /** @example mock-smart */
             model: string;
+            /**
+             * @example [
+             *       "еда",
+             *       "рецепты"
+             *     ]
+             */
+            tags: string[];
             /** @description Может быть скрыт от обычного пользователя по решению кандидата */
             systemPrompt?: string | null;
             /** @example курица, рис, томаты, сыр */
@@ -1027,6 +1045,7 @@ export interface components {
             model: string;
             systemPrompt: string;
             exampleUserPrompt?: string | null;
+            tags?: string[];
             /** @default true */
             isActive: boolean;
         };
@@ -1038,6 +1057,7 @@ export interface components {
             model: string;
             systemPrompt: string;
             exampleUserPrompt?: string | null;
+            tags?: string[];
             isActive: boolean;
         };
         /**
