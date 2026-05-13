@@ -63,6 +63,7 @@ llm:
 
 ### Схема БД и индексы
 
+Основное состояние приложения хранится в базе данных. (JWT используется как stateless-механизм аутентификации: часть пользовательского состояния, необходимая для авторизации запроса, хранится на клиенте в виде токена.)
 Схема состоит из семи таблиц (миграции `0001`–`0007` в `backend/internal/database/migrations/`):
 
 | Таблица              | Назначение                                             |
@@ -106,6 +107,7 @@ CREATE INDEX idx_assistant_tags_tag ON assistant_tags (tag_id);
 | `POST /auth/login` | Авторизует существующего пользователя по email и паролю |
 | `POST /dummyLogin` | Тестовый вход без пароля от имени `admin` или `user` |
 
+Пользователи для тестового входа имеют фиксированные ID.
 Регистрация администратора через публичный API запрещена: endpoint регистрации не принимает поле `role`, JSON декодируется с `DisallowUnknownFields`, а repository всегда вставляет роль `'user'`. Тестовые пользователи для `/dummyLogin` остаются сидом миграции `0001` и нужны только для проверки ролей.
 
 Пароли не хранятся в открытом виде. Backend нормализует email (`trim` + lowercase), валидирует пароль на сервере и сохраняет только bcrypt-хэш с серверным cost. Клиент не может выбрать алгоритм хэширования или передать соль: эти параметры задаются только backend-кодом. Для bcrypt дополнительно ограничена длина пароля до 72 байт, чтобы не попасть в неочевидное усечение.
@@ -174,7 +176,7 @@ type Provider interface {
 
 ### OpenAI-compatible LLM-провайдер
 
-Помимо `mock`, backend поддерживает внешний OpenAI-compatible Chat Completions API через `llm.OpenAICompatibleProvider`. Провайдер отправляет `systemPrompt` и `userPrompt` как `messages` в `POST /chat/completions`, читает `choices[0].message.content`, `usage.prompt_tokens`, `usage.completion_tokens` и `finish_reason`.
+Помимо `mock`, приложение поддерживает внешний OpenAI-compatible Chat Completions API через `llm.OpenAICompatibleProvider`. Провайдер отправляет `systemPrompt` и `userPrompt` как `messages` в `POST /chat/completions`, читает `choices[0].message.content`, `usage.prompt_tokens`, `usage.completion_tokens` и `finish_reason`.
 
 Для отображения прогресса генерации есть отдельный endpoint `POST /assistants/{assistantId}/run/stream`. Он создаёт запуск в статусе `pending`, отдаёт Server-Sent Events (`run`, `delta`, `done`, `failed`) и после завершения сохраняет финальный output в `assistant_runs`. Обычный `POST /assistants/{assistantId}/run` остаётся синхронным JSON-endpoint.
 
