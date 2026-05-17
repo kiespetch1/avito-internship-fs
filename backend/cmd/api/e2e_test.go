@@ -522,7 +522,7 @@ func newTestServer(ctx context.Context, t *testing.T, provider llm.Provider) *te
 		AuthHandler:       auth.NewHandler(issuer, userRepo),
 		CategoriesHandler: categories.NewHandler(service.NewCategoryService(categoryRepo)),
 		AssistantsHandler: assistants.NewHandler(service.NewAssistantService(assistantRepo)),
-		RunsHandler:       runs.NewHandler(service.NewRunService(runRepo, provider, 5*time.Second)),
+		RunsHandler:       runs.NewHandler(service.NewRunService(context.Background(), runRepo, provider, 5*time.Second)),
 	})
 
 	httpSrv := httptest.NewServer(handler)
